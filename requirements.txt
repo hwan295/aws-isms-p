@@ -1,0 +1,7 @@
+boto3
+PyYAML
+openpyxl
+
+# 검증용 — 실계정 대신 moto로만 돌린다
+moto[ec2,rds,s3,backup]
+pytest

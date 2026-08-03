@@ -1,0 +1,535 @@
+# 원본 덤프의 어느 경로 → 계약의 어느 필드.
+#
+# B가 필드 추가를 요청하면 yaml 한 줄 추가 + 재추출로 끝나야 한다.
+# AWS 재호출도 코드 수정도 없어야 한다. 이게 collect/extract를 나눈 이유다.
+#
+# 경로는 JMESPath다 (boto3에 이미 포함돼 있어 의존성이 늘지 않는다).
+#
+# 필드 선언 형태
+#   { path: "InstanceId" }            원본 응답에서. 없으면 API_NULL
+#   { tag: "OwnerDept" }              태그에서. 없으면 TAG_ABSENT
+#   { const: "값" }                   고정값
+#   { out_of_scope: "필요한 수집기" }  개념은 있는데 아직 안 부르는 API. OUT_OF_SCOPE
+#   transform: present|bool|csv|str   값 변환 (extract.py의 TRANSFORMS)
+#
+# 경로 도중에 __status__ 표지를 만나면 그 상태가 필드 사유가 된다.
+# (S3 미암호화 버킷의 encryption → NOT_CONFIGURED가 자동으로 붙는 원리)
+#
+# infra_facts_out_of_scope
+#   개념은 있는데 이 도구가 아직 그 API를 안 부르는 키를 명시한다.
+#   여기 없고 infra_facts에도 없는 키는 NOT_APPLICABLE로 나간다.
+#   "안 불러본 것"을 NOT_APPLICABLE로 두면 B가 "개념이 없다"로 오독한다.
+
+version: "1.0"
+
+resources:
+
+  # ------------------------------------------------------------------ 서버
+  ec2_instance:
+    service: ec2
+    iterate: "describe_instances.Reservations[].Instances[]"
+    asset_type: "서버"
+    asset_id: "arn:aws:ec2:{region}:{account}:instance/{InstanceId}"
+    index_key: "InstanceId"
+    tags: "Tags"
+    security_groups: "SecurityGroups[].GroupId"
+    backupable: true
+    fields:
+      asset_name:        { tag: "Name" }
+      serial_no:         { path: "InstanceId" }
+      model:             { path: "InstanceType" }
+      ip_private:        { path: "PrivateIpAddress" }
+      ip_public:         { path: "PublicIpAddress" }
+      az:                { path: "Placement.AvailabilityZone" }
+      vpc_id:            { path: "VpcId" }
+      subnet_id:         { path: "SubnetId" }
+      image_id:          { path: "ImageId" }
+      tenancy:           { path: "Placement.Tenancy" }
+      virtualization:    { path: "VirtualizationType" }
+      lifecycle_state:   { path: "State.Name" }
+      created_at:        { path: "LaunchTime" }
+      os:                { out_of_scope: "ssm.describe_instance_information — SSM Agent 필요" }
+      usage:             { tag: "InventoryCategory" }
+      environment:       { tag: "Environment" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      personal_info_items: { tag: "PIItems", transform: csv }
+      data_source:       { tag: "DataSource" }
+      in_scope:          { tag: "InScope", transform: bool }
+      scope_reason:      { tag: "ScopeReason" }
+      service_name:      { tag: "ServiceName" }
+    infra_facts:
+      state:             { path: "State.Name" }
+      public_exposed:    { path: "PublicIpAddress", transform: present }
+      # AWS가 붙이는 태그다. 없는 것도 값(ASG 미소속)이므로 tag_present를 쓴다.
+      in_asg:            { tag_present: "aws:autoscaling:groupName" }
+      encryption_at_rest: { path: "BlockDeviceMappings[0].Ebs.Encrypted", transform: enc_bool }
+
+    infra_facts_out_of_scope:
+      exposure_path: "elbv2·cloudfront·apigateway 수집기 필요 — 공인 IP가 없어도 ALB 뒤에 있을 수 있다"
+      encryption_in_transit: "elbv2.describe_listeners 또는 인스턴스 내부 설정 확인 필요"
+      logging_enabled: "ec2.describe_flow_logs / cloudtrail 수집 필요"
+      deletion_protection: "ec2.describe_instance_attribute(disableApiTermination) 수집 필요"
+      os: "ssm.describe_instance_information 수집 필요 — SSM Agent 미설치 시 확인 불가"
+
+  # ------------------------------------------------------ 정보(전자적) — EBS
+  ec2_volume:
+    service: ec2
+    iterate: "describe_volumes.Volumes[]"
+    asset_type: "정보"
+    asset_id: "arn:aws:ec2:{region}:{account}:volume/{VolumeId}"
+    index_key: "VolumeId"
+    tags: "Tags"
+    backupable: true
+    parent:
+      via: "Attachments[0].InstanceId"
+      target: ec2_instance
+      relation: attached_to
+    fields:
+      asset_name:        { tag: "Name" }
+      serial_no:         { path: "VolumeId" }
+      model:             { path: "VolumeType" }
+      size_gb:           { path: "Size" }
+      az:                { path: "AvailabilityZone" }
+      lifecycle_state:   { path: "State" }
+      created_at:        { path: "CreateTime" }
+      attached_to:       { path: "Attachments[0].InstanceId" }
+      usage:             { tag: "InventoryCategory" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      personal_info_items: { tag: "PIItems", transform: csv }
+      data_source:       { tag: "DataSource" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:              { path: "State" }
+      encryption_at_rest: { path: "Encrypted", transform: enc_bool }
+
+    infra_facts_out_of_scope: {}
+
+  # ------------------------------------------------------ 정보(전자적) — S3
+  s3_bucket:
+    service: s3
+    # buckets는 {버킷명: {api: 응답}} 형태의 dict다. 키를 Name 필드로 넣는다.
+    iterate: { map: "buckets", key_as: "Name" }
+    # 자산명·생성일은 list_buckets에 있다. 버킷명으로 맞춰 합친다.
+    merge: { from: "list_buckets.Buckets", match_key: "Name" }
+    asset_type: "정보"
+    asset_id: "arn:aws:s3:::{Name}"
+    index_key: "Name"
+    region_from: "get_bucket_location.LocationConstraint"
+    tags: "get_bucket_tagging.TagSet"
+    backupable: true
+    fields:
+      asset_name:        { path: "Name" }
+      serial_no:         { path: "Name" }
+      created_at:        { path: "CreationDate" }
+      usage:             { tag: "InventoryCategory" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      personal_info_items: { tag: "PIItems", transform: csv }
+      data_source:       { tag: "DataSource" }
+      in_scope:          { tag: "InScope", transform: bool }
+      scope_reason:      { tag: "ScopeReason" }
+    infra_facts:
+      encryption_at_rest:
+        path: "get_bucket_encryption.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm"
+        transform: sse_algorithm
+      public_exposed:     { path: "get_bucket_policy_status.PolicyStatus.IsPublic" }
+      versioning_enabled: { path: "get_bucket_versioning.Status", transform: enabled }
+      object_lock:        { path: "get_object_lock_configuration.ObjectLockConfiguration.ObjectLockEnabled", transform: enabled }
+      logging_enabled:    { path: "get_bucket_logging.LoggingEnabled", transform: present }
+
+    infra_facts_out_of_scope:
+      exposure_path: "cloudfront 수집기 필요 — 버킷 정책이 비공개여도 OAC로 전 세계 서빙 중일 수 있다"
+      encryption_in_transit: "s3.get_bucket_policy의 aws:SecureTransport 조건 확인 필요"
+
+  # ------------------------------------------------------------ 데이터(DBMS)
+  rds_instance:
+    service: rds
+    iterate: "describe_db_instances.DBInstances[]"
+    asset_type: "데이터(DBMS)"
+    asset_id: "{DBInstanceArn}"
+    index_key: "DBInstanceIdentifier"
+    # RDS는 Tags가 아니라 TagList다. 서비스마다 다른 걸 여기서 흡수한다.
+    tags: "TagList"
+    security_groups: "VpcSecurityGroups[].VpcSecurityGroupId"
+    backupable: true
+    fields:
+      asset_name:        { path: "DBInstanceIdentifier" }
+      serial_no:         { path: "DbiResourceId" }
+      model:             { path: "DBInstanceClass" }
+      engine:            { path: "Engine" }
+      version:           { path: "EngineVersion" }
+      endpoint:          { path: "Endpoint.Address" }
+      port:              { path: "Endpoint.Port" }
+      az:                { path: "AvailabilityZone" }
+      vpc_id:            { path: "DBSubnetGroup.VpcId" }
+      lifecycle_state:   { path: "DBInstanceStatus" }
+      created_at:        { path: "InstanceCreateTime" }
+      usage:             { tag: "InventoryCategory" }
+      environment:       { tag: "Environment" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      personal_info_items: { tag: "PIItems", transform: csv }
+      data_source:       { tag: "DataSource" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:              { path: "DBInstanceStatus" }
+      encryption_at_rest: { path: "StorageEncrypted", transform: enc_bool }
+      multi_az:           { path: "MultiAZ" }
+      public_exposed:     { path: "PubliclyAccessible" }
+      deletion_protection: { path: "DeletionProtection" }
+      pitr_enabled:       { path: "BackupRetentionPeriod", transform: positive }
+      encryption_in_transit: { out_of_scope: "rds.describe_db_parameters — 파라미터그룹 수집 필요" }
+    infra_facts_out_of_scope:
+      exposure_path: "elbv2·cloudfront 수집기 필요"
+      snapshot_count: "rds.describe_db_snapshots 수집 필요"
+      logging_enabled: "rds.describe_db_log_files 수집 필요"
+
+  rds_cluster:
+    service: rds
+    iterate: "describe_db_clusters.DBClusters[]"
+    asset_type: "데이터(DBMS)"
+    asset_id: "{DBClusterArn}"
+    index_key: "DBClusterIdentifier"
+    tags: "TagList"
+    backupable: true
+    fields:
+      asset_name:        { path: "DBClusterIdentifier" }
+      engine:            { path: "Engine" }
+      version:           { path: "EngineVersion" }
+      endpoint:          { path: "Endpoint" }
+      lifecycle_state:   { path: "Status" }
+      created_at:        { path: "ClusterCreateTime" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:              { path: "Status" }
+      encryption_at_rest: { path: "StorageEncrypted", transform: enc_bool }
+      multi_az:           { path: "MultiAZ" }
+      pitr_enabled:       { path: "BackupRetentionPeriod", transform: positive }
+
+    infra_facts_out_of_scope:
+      exposure_path: "elbv2·cloudfront 수집기 필요"
+      snapshot_count: "rds.describe_db_cluster_snapshots 수집 필요"
+      encryption_in_transit: "rds.describe_db_parameters 수집 필요"
+      deletion_protection: "describe_db_clusters 응답의 DeletionProtection 미선언 — 필드 추가로 해결"
+
+  # -------------------------------------------------------------- 가상자원
+  ec2_snapshot:
+    service: ec2
+    iterate: "describe_snapshots.Snapshots[]"
+    asset_type: "가상자원"
+    asset_id: "arn:aws:ec2:{region}:{account}:snapshot/{SnapshotId}"
+    index_key: "SnapshotId"
+    tags: "Tags"
+    backupable: false
+    # 사본은 원본 등급을 상속해야 한다(결함사례 5). 상속 판단은 B가 하되,
+    # 어느 볼륨의 사본인지라는 사실은 A가 채운다.
+    parent:
+      via: "VolumeId"
+      target: ec2_volume
+      relation: snapshot_of
+    fields:
+      asset_name:        { tag: "Name" }
+      serial_no:         { path: "SnapshotId" }
+      # 소유 계정. 실계정에서는 OwnerIds=['self'] 때문에 항상 수집 계정과 같지만,
+      # moto는 그 필터를 무시해 남의 계정 스냅샷을 섞어 준다(docs/aws-facts.md §6).
+      # 데모가 moto 산출물을 걸러내는 근거가 이 필드다.
+      owner_account:     { path: "OwnerId" }
+      size_gb:           { path: "VolumeSize" }
+      lifecycle_state:   { path: "State" }
+      created_at:        { path: "StartTime" }
+      owner_dept:        { tag: "OwnerDept" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:              { path: "State" }
+      encryption_at_rest: { path: "Encrypted", transform: enc_bool }
+    infra_facts_out_of_scope: {}
+
+  ec2_image:
+    service: ec2
+    iterate: "describe_images.Images[]"
+    asset_type: "가상자원"
+    asset_id: "arn:aws:ec2:{region}:{account}:image/{ImageId}"
+    index_key: "ImageId"
+    tags: "Tags"
+    backupable: false
+    fields:
+      asset_name:        { path: "Name" }
+      serial_no:         { path: "ImageId" }
+      owner_account:     { path: "OwnerId" }
+      lifecycle_state:   { path: "State" }
+      created_at:        { path: "CreationDate" }
+      owner_dept:        { tag: "OwnerDept" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:              { path: "State" }
+      encryption_at_rest: { path: "BlockDeviceMappings[0].Ebs.Encrypted", transform: enc_bool }
+
+    infra_facts_out_of_scope: {}
+
+  # ----------------------------------------------------------- 네트워크장비
+  ec2_security_group:
+    service: ec2
+    iterate: "describe_security_groups.SecurityGroups[]"
+    asset_type: "네트워크장비"
+    asset_id: "arn:aws:ec2:{region}:{account}:security-group/{GroupId}"
+    index_key: "GroupId"
+    tags: "Tags"
+    backupable: false
+    fields:
+      asset_name:        { path: "GroupName" }
+      serial_no:         { path: "GroupId" }
+      usage:             { path: "Description" }
+      vpc_id:            { path: "VpcId" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts: {}
+    infra_facts_out_of_scope: {}
+
+  ec2_vpc:
+    service: ec2
+    iterate: "describe_vpcs.Vpcs[]"
+    asset_type: "네트워크장비"
+    asset_id: "arn:aws:ec2:{region}:{account}:vpc/{VpcId}"
+    index_key: "VpcId"
+    tags: "Tags"
+    backupable: false
+    fields:
+      asset_name:        { tag: "Name" }
+      serial_no:         { path: "VpcId" }
+      cidr:              { path: "CidrBlock" }
+      is_default:        { path: "IsDefault" }
+      lifecycle_state:   { path: "State" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:             { path: "State" }
+    infra_facts_out_of_scope:
+      logging_enabled: "ec2.describe_flow_logs 수집 필요"
+
+  ec2_subnet:
+    service: ec2
+    iterate: "describe_subnets.Subnets[]"
+    asset_type: "네트워크장비"
+    asset_id: "{SubnetArn}"
+    index_key: "SubnetId"
+    tags: "Tags"
+    backupable: false
+    fields:
+      asset_name:        { tag: "Name" }
+      serial_no:         { path: "SubnetId" }
+      cidr:              { path: "CidrBlock" }
+      az:                { path: "AvailabilityZone" }
+      vpc_id:            { path: "VpcId" }
+      lifecycle_state:   { path: "State" }
+      owner_dept:        { tag: "OwnerDept" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:             { path: "State" }
+      public_exposed:    { path: "MapPublicIpOnLaunch" }
+    infra_facts_out_of_scope: {}
+
+  ec2_address:
+    service: ec2
+    iterate: "describe_addresses.Addresses[]"
+    asset_type: "네트워크장비"
+    asset_id: "arn:aws:ec2:{region}:{account}:elastic-ip/{AllocationId}"
+    index_key: "AllocationId"
+    tags: "Tags"
+    backupable: false
+    parent:
+      via: "InstanceId"
+      target: ec2_instance
+      relation: attached_to
+    fields:
+      asset_name:        { tag: "Name" }
+      serial_no:         { path: "AllocationId" }
+      ip_public:         { path: "PublicIp" }
+      attached_to:       { path: "InstanceId" }
+      owner_dept:        { tag: "OwnerDept" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      public_exposed:    { const: true }
+    infra_facts_out_of_scope: {}
+
+  # ------------------------------------------------------------ 보안시스템
+  # 결함사례 1 대응의 절반. 나머지 절반(출력물 보안·DRM·USB·DLP)은
+  # AWS API로 절대 안 나오므로 config/manual_items.yaml이 담당한다.
+
+  wafv2_web_acl:
+    service: security
+    iterate: "list_web_acls.WebACLs[]"
+    asset_type: "보안시스템"
+    asset_id: "{ARN}"
+    index_key: "Id"
+    tags_unavailable: "wafv2:ListTagsForResource 수집 필요"
+    backupable: false
+    fields:
+      asset_name:        { path: "Name" }
+      serial_no:         { path: "Id" }
+      usage:             { const: "침입차단시스템(웹)" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:             { const: "ACTIVE" }
+    infra_facts_out_of_scope: {}
+
+  guardduty_detector:
+    service: security
+    iterate: { map: "detectors", key_as: "DetectorId" }
+    # map 형태는 키가 수집기가 만든 이름이라 원본 API를 역산할 수 없다. 직접 적는다.
+    source_apis: [list_detectors, get_detector]
+    asset_type: "보안시스템"
+    asset_id: "arn:aws:guardduty:{region}:{account}:detector/{DetectorId}"
+    index_key: "DetectorId"
+    tags: "Tags"
+    backupable: false
+    fields:
+      asset_name:        { path: "DetectorId" }
+      serial_no:         { path: "DetectorId" }
+      usage:             { const: "침입탐지시스템" }
+      lifecycle_state:   { path: "Status" }
+      created_at:        { path: "CreatedAt" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:             { path: "Status" }
+    infra_facts_out_of_scope: {}
+
+  network_firewall:
+    service: security
+    iterate: "list_firewalls.Firewalls[]"
+    asset_type: "보안시스템"
+    asset_id: "{FirewallArn}"
+    index_key: "FirewallName"
+    tags_unavailable: "network-firewall:DescribeFirewall 수집 필요"
+    backupable: false
+    fields:
+      asset_name:        { path: "FirewallName" }
+      serial_no:         { path: "FirewallName" }
+      usage:             { const: "침입방지시스템" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts: {}
+    infra_facts_out_of_scope: {}
+
+  kms_key:
+    service: security
+    iterate: { map: "keys", key_as: "KeyId" }
+    source_apis: [list_keys, describe_key]
+    # AWS 관리형 키는 계정 부속이지 자산이 아니다. 고객관리형만 등재한다.
+    where: "KeyMetadata.KeyManager == 'CUSTOMER'"
+    asset_type: "보안시스템"
+    asset_id: "{KeyMetadata.Arn}"
+    index_key: "KeyId"
+    tags_unavailable: "kms:ListResourceTags 수집 필요"
+    backupable: false
+    fields:
+      asset_name:        { path: "KeyMetadata.Description" }
+      serial_no:         { path: "KeyId" }
+      usage:             { const: "암호키(고객관리형)" }
+      lifecycle_state:   { path: "KeyMetadata.KeyState" }
+      created_at:        { path: "KeyMetadata.CreationDate" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:             { path: "KeyMetadata.KeyState" }
+    infra_facts_out_of_scope: {}
+
+  acm_certificate:
+    service: security
+    iterate: "list_certificates.CertificateSummaryList[]"
+    asset_type: "보안시스템"
+    asset_id: "{CertificateArn}"
+    index_key: "CertificateArn"
+    tags_unavailable: "acm:ListTagsForCertificate 수집 필요"
+    backupable: false
+    fields:
+      asset_name:        { path: "DomainName" }
+      serial_no:         { path: "CertificateArn" }
+      usage:             { const: "서버 인증서" }
+      lifecycle_state:   { path: "Status" }
+      expires_at:        { path: "NotAfter" }
+      owner_dept:        { tag: "OwnerDept" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      state:             { path: "Status" }
+    infra_facts_out_of_scope: {}
+
+  cloudtrail_trail:
+    service: security
+    iterate: "describe_trails.trailList[]"
+    asset_type: "보안시스템"
+    asset_id: "{TrailARN}"
+    index_key: "Name"
+    tags_unavailable: "cloudtrail:ListTags 수집 필요"
+    backupable: false
+    fields:
+      asset_name:        { path: "Name" }
+      serial_no:         { path: "Name" }
+      usage:             { const: "감사로그" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      logging_enabled:   { path: "IsMultiRegionTrail" }
+      encryption_at_rest: { path: "KmsKeyId", transform: present }
+    infra_facts_out_of_scope: {}
+
+  config_recorder:
+    service: security
+    iterate: "describe_configuration_recorders.ConfigurationRecorders[]"
+    asset_type: "보안시스템"
+    asset_id: "arn:aws:config:{region}:{account}:recorder/{name}"
+    index_key: "name"
+    tags_unavailable: "config는 레코더에 태그 개념이 없다"
+    backupable: false
+    fields:
+      asset_name:        { path: "name" }
+      serial_no:         { path: "name" }
+      usage:             { const: "구성 변경 이력" }
+      owner_dept:        { tag: "OwnerDept" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      logging_enabled:   { const: true }
+    infra_facts_out_of_scope: {}
+
+  secretsmanager_secret:
+    service: security
+    iterate: "list_secrets.SecretList[]"
+    asset_type: "보안시스템"
+    asset_id: "{ARN}"
+    index_key: "Name"
+    tags: "Tags"
+    backupable: false
+    fields:
+      asset_name:        { path: "Name" }
+      serial_no:         { path: "Name" }
+      usage:             { const: "비밀정보" }
+      created_at:        { path: "CreatedDate" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      encryption_at_rest: { path: "KmsKeyId", transform: present }
+    infra_facts_out_of_scope: {}

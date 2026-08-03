@@ -1,0 +1,300 @@
+# AWS API로 얻을 수 없는 항목과, 담당자가 무엇을 해야 하는지.
+#
+# 이 도구는 자동화가 목적이지만 동시에 증적을 관리하는 담당자의 부담을 줄이는 것도 목적이다.
+# 못 채우는 칸을 "빈 칸"으로 두면 부담이 줄지 않는다.
+# "이 칸은 당신이 채워야 하고, 이유는 이거고, 이렇게 채우면 된다"까지 알려줘야 한다.
+#
+# auto_after_fix 가 이 파일에서 가장 중요한 구분이다.
+#   true  — 태그만 달면 다음 실행부터 자동으로 채워진다. 한 번 투자하면 끝나는 일
+#   false — AWS 밖 자산이라 영원히 수기다. 계속 드는 비용
+# 담당자 입장에서 완전히 다른 일이다. 섞어서 보여주면 우선순위를 못 정한다.
+
+version: "1.0"
+
+items:
+
+  # ======================================================= 태그로 해결되는 것
+  # 한 번 태그를 달면 다음 실행부터 자동이다.
+
+  asset_owner:
+    isms_asset_type: "전체"
+    item_name: "관리부서·관리실무자·관리책임자"
+    reason: "AWS에 '소유자' 개념 자체가 없다. 태그로 넣지 않으면 어디에도 존재하지 않는 정보다"
+    evidence: "ISMS-P 안내서 1.2.1 자산 유형별 항목(예) — 관리 부서명·관리 실무자·관리 책임자 3주체 모두 요구"
+    owner: "각 자산 운영 부서"
+    action: "OwnerDept / OwnerManager / OwnerResponsible 태그 입력"
+    fields: [owner_dept, owner_manager, owner_responsible]
+    auto_after_fix: true
+    note: >
+      CloudTrail의 생성자(created_by)는 후보 제시일 뿐 책임자 지정이 아니다.
+      그리고 조회 가능 기간이 90일이라 그 이전 자산은 추적되지 않는다.
+
+  asset_naming:
+    isms_asset_type: "전체"
+    item_name: "자산명 · 호스트 명칭"
+    reason: >
+      AWS는 리소스 ID(i-0abc…)만 부여한다. 사람이 읽을 이름은 Name 태그로 넣지 않으면 없다.
+      스냅샷·AMI처럼 자동 생성되는 자산에서 특히 많이 빈다.
+    evidence: "ISMS-P 안내서 1.2.1 자산 유형별 항목(예) — 서버의 '호스트 명칭', 그 외 유형의 '자산명'"
+    owner: "각 자산 운영 부서"
+    action: "Name 태그 입력. 네이밍 규칙(환경-역할-일련번호)을 지침에 먼저 정할 것"
+    fields: [asset_name]
+    auto_after_fix: true
+
+  asset_usage:
+    isms_asset_type: "전체"
+    item_name: "용도(목적 및 기능)"
+    reason: "업무적 의미는 조직만 안다. API는 인스턴스 타입은 알려줘도 그게 무슨 일을 하는지는 모른다"
+    evidence: "ISMS-P 안내서 1.2.1 — 서버·정보시스템 유형의 '용도' 항목"
+    owner: "각 자산 운영 부서"
+    action: "InventoryCategory 태그 입력 (WebServer / WAS / DB / Batch / Bastion / CICD / Log / Backup 등)"
+    fields: [usage]
+    auto_after_fix: true
+
+  personal_info_holding:
+    isms_asset_type: "전체"
+    item_name: "개인정보 보유 여부"
+    reason: >
+      객체 내용·DB 스키마 스캔은 관리 API 범위 밖이다.
+      이 프로젝트는 개인정보 자동 탐지를 하지 않는다(그 자체로 별개 제품 규모).
+    evidence: "ISMS-P 안내서 1.2.1 결함사례 5 — 개인정보를 저장한 백업서버의 기밀성 등급을 (하)로 산정"
+    owner: "개인정보보호 담당"
+    action: "HandlePI 태그 입력 (Y/N). Y이면 PIItems 태그도 필수"
+    fields: [has_personal_info]
+    auto_after_fix: true
+    note: "미입력 시 등급 산정 자체를 보류해야 한다(룰 C-99). 값을 모르는 채로 등급을 매기면 안 된다"
+
+  personal_info_items:
+    isms_asset_type: "데이터(DBMS)"
+    item_name: "(개인)정보 항목명"
+    reason: "컬럼명·데이터 내용은 관리 API 밖의 영역이다"
+    evidence: "ISMS-P 안내서 1.2.1 데이터 유형 항목(예) — 이름, 성별, 생년월일, 휴대폰번호, 이메일 등"
+    owner: "개인정보보호 담당 / DBA"
+    action: "개인정보 흐름표와 대조해 PIItems 태그 입력 (name,phone,email,rrn,card)"
+    fields: [personal_info_items]
+    # HandlePI=Y인 자산만 필수다. 조건을 안 보면 개인정보를 안 다루는 자산까지
+    # "항목 미입력"으로 세어 숫자가 부풀고 우선순위가 뒤집힌다.
+    condition: { field: has_personal_info, equals: true }
+    auto_after_fix: true
+    note: "자동 검증은 Amazon Macie 도입 시 가능하나 S3 한정이다"
+
+  third_party_data:
+    isms_asset_type: "전체"
+    item_name: "수집 출처 (자체수집 / 제3자제공 / 위탁)"
+    reason: "데이터의 출처는 계약 문서의 정보다. API에는 없다"
+    evidence: "ISMS-P 안내서 1.2.1 결함사례 2 — 제3자로부터 제공받은 개인정보에 대한 자산 식별 누락"
+    owner: "개인정보보호 담당 / 법무"
+    action: "제공 계약서·수탁 계약서 확인 후 DataSource 태그 입력 (Self / ThirdParty / Entrusted)"
+    fields: [data_source]
+    condition: { field: has_personal_info, equals: true }
+    auto_after_fix: true
+
+  scope_decision:
+    isms_asset_type: "전체"
+    item_name: "인증범위 포함 여부 / 제외 사유"
+    reason: "관리체계 범위는 조직이 정책으로 정의하는 것이지 API가 알려주는 값이 아니다"
+    evidence: "ISMS-P 1.2.1 인증기준 원문 '관리체계 범위 내 모든 정보자산' / 결함사례 4"
+    owner: "정보보호 담당"
+    action: "범위 정의서와 대조해 InScope 태그 입력"
+    fields: [in_scope]
+    auto_after_fix: true
+
+  scope_reason:
+    isms_asset_type: "전체"
+    item_name: "인증범위 제외 사유"
+    reason: "범위에서 뺀 이유는 조직의 판단이다"
+    evidence: "ISMS-P 안내서 1.2.1 결함사례 4 — 인증범위 내 위탁 자산 누락"
+    owner: "정보보호 담당"
+    action: "ScopeReason 태그 입력"
+    fields: [scope_reason]
+    # InScope=N인 자산만 필수다.
+    condition: { field: in_scope, equals: false }
+    auto_after_fix: true
+    note: "사유 없는 제외는 그 자체가 결함이다"
+
+  # ============================================== 영원히 수기 — AWS 밖 자산
+  # 결함사례 1과 4가 지적하는 지점. 클라우드 API로는 해결되지 않는다.
+
+  security_system_dlp:
+    isms_asset_type: "보안시스템"
+    item_name: "내부정보 유출통제 시스템"
+    examples: ["출력물 보안", "문서암호화(DRM)", "USB 매체제어", "엔드포인트 DLP"]
+    reason: "온프레미스 엔드포인트 솔루션이라 AWS API 대상이 아니다. Macie는 S3 한정이다"
+    evidence: >
+      ISMS-P 안내서 1.2.1 결함사례 1 — 중요정보·개인정보 취급자 PC를 통제하는
+      출력물 보안, 문서암호화, USB매체제어 등 내부정보 유출통제 시스템이 자산 목록에서 누락된 경우
+    owner: "정보보안팀"
+    action: "보유 솔루션을 수기 등재. 미보유 시 미보유 사실을 문서화"
+    auto_after_fix: false
+
+  security_system_fw:
+    isms_asset_type: "보안시스템"
+    item_name: "침입차단시스템 (온프레)"
+    examples: ["물리 방화벽", "UTM"]
+    reason: "AWS WAF·보안그룹으로 덮이지 않는 온프레 구간의 차단 장비"
+    evidence: "ISMS-P 안내서 1.2.1 보안시스템 유형 — 침입차단시스템 명시"
+    owner: "인프라운영팀"
+    action: "온프레 방화벽 장비를 수기 등재. 전 구간이 AWS면 그 사실을 문서화"
+    auto_after_fix: false
+
+  security_system_ids:
+    isms_asset_type: "보안시스템"
+    item_name: "침입탐지시스템 (온프레)"
+    examples: ["IDS 장비", "NAC", "서버접근제어"]
+    reason: "온프레 또는 서드파티 솔루션"
+    evidence: "ISMS-P 안내서 1.2.1 보안시스템 유형 — 침입탐지시스템 명시"
+    owner: "정보보안팀"
+    action: "보유 솔루션 수기 등재 (EC2 내부 설치분은 SSM Inventory로 부분 탐지 가능)"
+    auto_after_fix: false
+
+  security_system_ips:
+    isms_asset_type: "보안시스템"
+    item_name: "침입방지시스템 (온프레)"
+    examples: ["IPS 장비", "백신 관리서버"]
+    reason: "온프레 또는 서드파티 솔루션"
+    evidence: "ISMS-P 안내서 1.2.1 보안시스템 유형 — 침입방지시스템 명시"
+    owner: "정보보안팀"
+    action: "보유 솔루션 수기 등재"
+    auto_after_fix: false
+
+  outsourced_it:
+    isms_asset_type: "기타"
+    item_name: "위탁 IT 서비스 · 외부 SaaS"
+    examples: ["웹호스팅", "서버호스팅", "MSP 운영대행", "PG", "Slack", "Notion", "GitHub", "Datadog"]
+    reason: "AWS 계정 밖의 자산이다"
+    evidence: >
+      ISMS-P 안내서 1.2.1 결함사례 4 — 온프레미스 자산은 식별했으나
+      외부에 위탁한 IT 서비스(웹호스팅, 서버호스팅, 클라우드 등)에 대한 자산 식별이 누락된 경우
+    owner: "IT기획팀"
+    action: "위탁 계약 목록 수기 등재. 수탁사명·계약기간·위탁 업무 범위·개인정보 위탁 여부 기재"
+    auto_after_fix: false
+
+  onprem_endpoints:
+    isms_asset_type: "PC"
+    item_name: "온프레미스 PC · 노트북"
+    reason: "AWS 계정 밖이다. WorkSpaces 미사용 조직이면 이 유형이 통째로 비어 있다"
+    evidence: "ISMS-P 안내서 1.2.1 PC 유형 / 결함사례 1 (취급자 PC 통제)"
+    owner: "IT운영팀"
+    action: "사내 자산관리시스템 결과를 병합. 개인정보취급자 PC를 별도 구분 표기"
+    auto_after_fix: false
+
+  onprem_network:
+    isms_asset_type: "네트워크장비"
+    item_name: "온프레미스 네트워크 장비"
+    examples: ["라우터", "L2/L3 스위치", "물리 방화벽"]
+    reason: "AWS 밖이다"
+    evidence: "ISMS-P 안내서 1.2.1 네트워크장비 유형"
+    owner: "인프라운영팀"
+    action: "네트워크 구성도·장비 대장을 수기 등재"
+    auto_after_fix: false
+
+  paper_documents:
+    isms_asset_type: "정보"
+    item_name: "문서적 정보"
+    examples: ["계약서", "서면 동의서", "출력물", "오프라인 백업 매체"]
+    reason: "물리 자산이라 API 대상이 아니다"
+    evidence: "ISMS-P 안내서 1.2.1 정보 유형 — '문서적 정보와 전자적 정보 모두를 포함'"
+    owner: "각 문서 관리 부서"
+    action: "보관 위치·보관 기간을 적어 수기 시트로 관리"
+    auto_after_fix: false
+
+  facility_equipment:
+    isms_asset_type: "설비"
+    item_name: "설비 (전산실·UPS·항온항습·출입통제·CCTV)"
+    reason: "책임공유모델상 CSP 책임영역이다"
+    evidence: "AWS 보안 모범 사례 백서 — 책임공유모델. ISMS-P 안내서 1.2.1 설비 유형"
+    owner: "정보보안팀"
+    action: >
+      제외 사유를 문서화한다. 사유 없이 비워두면 그 자체가 결함이다.
+      권장 문구: "책임공유모델상 CSP 책임영역. AWS Artifact ISO 27001·SOC 2 보고서 첨부"
+    auto_after_fix: false
+
+  facility_site:
+    isms_asset_type: "시설"
+    item_name: "시설 (건물·전산실 위치)"
+    reason: "위와 동일하게 CSP 책임영역"
+    evidence: "책임공유모델 / ISMS-P 안내서 1.2.1 시설 유형"
+    owner: "정보보안팀"
+    action: "AWS Artifact 규정 준수 보고서를 수령·보관하고 제외 사유에 첨부"
+    auto_after_fix: false
+
+  db_table_names:
+    isms_asset_type: "데이터(DBMS)"
+    item_name: "테이블명"
+    reason: "관리 API는 인스턴스 메타데이터만 반환한다. 테이블 목록은 DB 엔진에 접속해 스키마를 조회해야 한다"
+    evidence: "ISMS-P 안내서 1.2.1 데이터 유형 항목(예) — '테이블명'"
+    owner: "DBA"
+    action: "테이블 목록 제출. 이 프로젝트는 DB 접속·스키마 스캔을 하지 않는다"
+    auto_after_fix: false
+
+  app_business_function:
+    isms_asset_type: "정보시스템(응용프로그램)"
+    item_name: "응용프로그램의 업무 기능"
+    reason: "엔드포인트는 나오지만 '무슨 업무를 처리하는지'는 조직 지식이다"
+    evidence: "ISMS-P 안내서 1.2.1 정보시스템 유형 — '용도'"
+    owner: "각 서비스 담당 부서"
+    action: "서비스별 기능 정의서와 대조해 기재"
+    auto_after_fix: false
+
+  sw_license_type:
+    isms_asset_type: "소프트웨어"
+    item_name: "오픈소스 라이선스 종류"
+    examples: ["GPL", "AGPL", "MIT", "Apache-2.0"]
+    reason: "SSM Inventory는 패키지명·버전·게시자만 반환한다. 라이선스 필드가 없다"
+    evidence: "ISMS-P 안내서 1.2.1 소프트웨어 유형"
+    owner: "개발팀 / 법무"
+    action: "라이선스 조사 후 기재. AGPL 계열이 상용 서비스에 포함되면 법적 리스크다"
+    auto_after_fix: false
+
+  sw_license_count:
+    isms_asset_type: "소프트웨어"
+    item_name: "상용 SW 계약 수량·계약기간"
+    reason: "계약 문서의 정보다"
+    evidence: "KISA CSAP 자산목록 '수량' 컬럼"
+    owner: "구매팀"
+    action: "구매·계약 대장과 대조해 기재"
+    auto_after_fix: false
+
+  pc_user_identity:
+    isms_asset_type: "PC"
+    item_name: "사용자 실명·소속"
+    reason: "WorkSpaces의 UserName은 디렉터리 계정 ID이지 실명이 아니다"
+    evidence: "KISA CSAP 양식 '사용자(소속/명)' 컬럼"
+    owner: "인사팀 / IT운영팀"
+    action: "인사 정보와 매핑해 기재"
+    auto_after_fix: false
+
+  asset_parent_link:
+    isms_asset_type: "가상자원"
+    item_name: "실행 주체 · 원본 자산 연결"
+    reason: >
+      사본(스냅샷·AMI)이 어느 원본에서 왔는지는 원본이 수집 범위 안에 있어야 풀린다.
+      원본이 이미 삭제됐거나 다른 계정 소유면 연결되지 않는다.
+    evidence: "ISMS-P 안내서 1.2.1 결함사례 5 — 사본의 등급을 원본보다 낮게 산정"
+    owner: "인프라운영팀"
+    action: >
+      연결되지 않은 사본을 확인해 원본을 특정하거나, 원본이 없으면 폐기 대상인지 판단한다.
+      지침에 "사본은 원본 등급을 상속한다"를 명문화해야 결함사례 3·5를 함께 막는다.
+    fields: [parent_id]
+    auto_after_fix: false
+
+  image_approval:
+    isms_asset_type: "가상자원"
+    item_name: "이미지 승인 여부"
+    reason: "검증된 골든 이미지인지 임시 생성물인지 API가 구분하지 못한다"
+    evidence: "ISMS-P 안내서 1.2.1 클라우드 분류 조항"
+    owner: "인프라운영팀"
+    action: "승인 이미지 목록과 대조해 표기. 미사용 이미지는 폐기 승인 절차 수행"
+    auto_after_fix: false
+
+  # ================================================== 사람이 결정해야 하는 것
+
+  security_grade:
+    isms_asset_type: "전체"
+    item_name: "보안등급 확정"
+    reason: "등급 산정은 조직의 판단이다. 이 도구는 근거만 제시하고 판정하지 않는다"
+    evidence: "「정보자산 관리지침」 중요도 평가 조항 — 평가 주체는 조직"
+    owner: "정보보호 담당 + 각 자산 관리 책임자"
+    action: "담당 B의 등급 제안을 검토한 뒤 확정란에 기입"
+    auto_after_fix: false
+    note: "사본(스냅샷·AMI)은 원본 등급을 상속한다는 것을 지침에 명문화해야 결함사례 3·5를 함께 막는다"

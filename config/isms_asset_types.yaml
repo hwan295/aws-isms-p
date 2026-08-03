@@ -1,0 +1,165 @@
+# ISMS-P 안내서 1.2.1 자산 유형 정의와 유형별 요구 항목.
+#
+# 자산유형 11종이 assets.json의 최상위 키다(CLAUDE.md "확정 사항").
+# AWS로 한 건도 안 잡히는 유형(설비·시설·정보(문서적))도 키를 만든다.
+# 0건이라는 사실 자체가 결함사례 1·4의 리포트 대상이기 때문이다.
+#
+# required_items는 문자열 리스트가 아니라 field를 함께 선언한다.
+# 한글 항목명만으로는 "이 요구항목이 채워졌는가"를 기계가 계산할 수 없다.
+#   field: <이름>  → 그 계약 필드가 채워지면 충족
+#   field: null    → AWS API로 못 채우는 항목. manual_ref가 manual_items.yaml 키를 가리킨다
+# not_applicable  → 그 유형에서 NOT_APPLICABLE 사유를 붙일 필드 목록
+
+version: "1.0"
+
+asset_types:
+
+  서버:
+    description: "안내서 자산 유형 '서버'. AWS에서는 EC2·ECS·EKS·Lambda."
+    required_items:
+      - { name: "호스트 명칭",   field: asset_name }
+      - { name: "자산 일련번호", field: serial_no }
+      - { name: "모델명",        field: model }
+      - { name: "용도",          field: usage }
+      - { name: "IP주소",        field: ip_private }
+      - { name: "관리 부서명",   field: owner_dept }
+      - { name: "관리 실무자",   field: owner_manager }
+      - { name: "관리 책임자",   field: owner_responsible }
+      - { name: "보안등급",      field: null, manual_ref: security_grade }
+    not_applicable: [endpoint, personal_info_items]
+    aws_collectable: [ec2_instance]
+
+  데이터(DBMS):
+    description: "안내서 '데이터(DBMS)'. RDS·Aurora·DynamoDB·Redshift 등."
+    required_items:
+      - { name: "데이터베이스명",     field: asset_name }
+      - { name: "테이블명",           field: null, manual_ref: db_table_names }
+      - { name: "(개인)정보 항목명",  field: personal_info_items }
+      - { name: "관리 부서명",        field: owner_dept }
+      - { name: "관리 실무자",        field: owner_manager }
+      - { name: "관리 책임자",        field: owner_responsible }
+      - { name: "저장 시스템",        field: az }
+      - { name: "저장 위치",          field: endpoint }
+      - { name: "보안등급",           field: null, manual_ref: security_grade }
+    not_applicable: [ip_private, os, model]
+    aws_collectable: [rds_instance, rds_cluster]
+
+  정보시스템(응용프로그램):
+    description: "안내서 '정보시스템(응용프로그램)'. ALB·CloudFront·API Gateway 등."
+    required_items:
+      - { name: "자산명",        field: asset_name }
+      - { name: "용도",          field: usage }
+      - { name: "엔드포인트",    field: endpoint }
+      - { name: "관리 부서명",   field: owner_dept }
+      - { name: "관리 책임자",   field: owner_responsible }
+      - { name: "업무 기능",     field: null, manual_ref: app_business_function }
+      - { name: "보안등급",      field: null, manual_ref: security_grade }
+    not_applicable: [ip_private]
+    # 아직 수집기가 없다. 0건은 "자산이 없다"가 아니라 "안 봤다"이므로
+    # collection_gap으로 리포트된다.
+    aws_collectable: []
+
+  소프트웨어:
+    description: "안내서 '소프트웨어'. SSM Inventory·ECR 이미지 패키지·License Manager."
+    required_items:
+      - { name: "자산명",       field: asset_name }
+      - { name: "버전",         field: version }
+      - { name: "수량",         field: null, manual_ref: sw_license_count }
+      - { name: "라이선스 종류", field: null, manual_ref: sw_license_type }
+      - { name: "관리 부서명",  field: owner_dept }
+    not_applicable: [ip_private, encryption_at_rest]
+    aws_collectable: []
+
+  네트워크장비:
+    description: "안내서 '네트워크장비'. VPC·Subnet·SG·NACL·IGW·NAT·TGW·DX."
+    required_items:
+      - { name: "자산 식별자",   field: asset_id }
+      - { name: "용도",          field: usage }
+      - { name: "관리 부서명",   field: owner_dept }
+      - { name: "관리 책임자",   field: owner_responsible }
+      - { name: "인증범위 포함", field: in_scope }
+      - { name: "보안등급",      field: null, manual_ref: security_grade }
+    not_applicable: [os, has_personal_info, personal_info_items, encryption_at_rest]
+    aws_collectable: [ec2_security_group, ec2_vpc, ec2_subnet, ec2_address]
+
+  보안시스템:
+    description: >
+      안내서 '보안시스템' — 침입차단·침입탐지·침입방지·개인정보유출방지시스템.
+      AWS 쪽(WAF·GuardDuty·Network Firewall·KMS·CloudTrail)은 수집한다.
+      온프레 유출통제(출력물 보안·DRM·USB)는 영원히 수기다. 결함사례 1의 지점.
+    # 이 유형의 요구항목은 '자산의 어느 필드'가 아니라 '그 통제가 존재하는가'다.
+    # presence에 적힌 resource_type 자산이 0건이면 그 통제가 없다는 뜻이고,
+    # 그때 manual_ref가 담당자에게 무엇을 해야 하는지 알려준다.
+    required_items:
+      - { name: "침입차단시스템",       presence: [wafv2_web_acl], manual_ref: security_system_fw }
+      - { name: "침입탐지시스템",       presence: [guardduty_detector], manual_ref: security_system_ids }
+      - { name: "침입방지시스템",       presence: [network_firewall], manual_ref: security_system_ips }
+      - { name: "개인정보유출방지시스템", presence: [], manual_ref: security_system_dlp }
+      - { name: "관리 부서명",          field: owner_dept }
+      - { name: "관리 책임자",          field: owner_responsible }
+    not_applicable: [ip_private, has_personal_info, personal_info_items]
+    aws_collectable:
+      [wafv2_web_acl, guardduty_detector, network_firewall, kms_key,
+       acm_certificate, cloudtrail_trail, config_recorder, secretsmanager_secret]
+
+  PC:
+    description: "안내서 'PC'. WorkSpaces(VDI) + 온프레 단말은 수기."
+    required_items:
+      - { name: "모델명",       field: model }
+      - { name: "OS",           field: os }
+      - { name: "IP",           field: ip_private }
+      - { name: "용도",         field: usage }
+      - { name: "사용자",       field: null, manual_ref: pc_user_identity }
+      - { name: "소속팀",       field: owner_dept }
+    not_applicable: [endpoint, encryption_at_rest]
+    aws_collectable: []
+
+  정보:
+    description: >
+      안내서 '정보' — 문서적 정보와 전자적 정보를 모두 포함.
+      전자적 정보는 S3·EBS·EFS로 수집한다. 문서적 정보(계약서·서면동의서·출력물)는 수기다.
+    required_items:
+      - { name: "자산명",            field: asset_name }
+      - { name: "용도",              field: usage }
+      - { name: "관리 부서명",       field: owner_dept }
+      - { name: "관리 실무자",       field: owner_manager }
+      - { name: "관리 책임자",       field: owner_responsible }
+      - { name: "개인정보 보유 여부", field: has_personal_info }
+      - { name: "(개인)정보 항목명",  field: personal_info_items }
+      - { name: "수집 출처",         field: data_source }
+      - { name: "문서적 정보",       field: null, manual_ref: paper_documents }
+      - { name: "보안등급",          field: null, manual_ref: security_grade }
+    not_applicable: [ip_private, os, model, endpoint]
+    aws_collectable: [s3_bucket, ec2_volume]
+
+  가상자원:
+    description: >
+      안내서 클라우드 조항에서 파생한 유형. AMI·컨테이너 이미지·EBS 스냅샷.
+      온프레 분류표를 그대로 쓰지 말라는 것이 안내서의 명시적 요구다.
+    required_items:
+      - { name: "자산명",       field: asset_name }
+      - { name: "관리 부서명",  field: owner_dept }
+      - { name: "실행 주체",    field: parent_id }
+      - { name: "이미지 승인 여부", field: null, manual_ref: image_approval }
+    not_applicable: [ip_private, endpoint, os]
+    aws_collectable: [ec2_snapshot, ec2_image]
+
+  설비:
+    description: >
+      전산실·UPS·항온항습·출입통제·CCTV. 책임공유모델상 CSP 책임영역이라
+      aws_collectable이 비어 있는 것이 정답이다. 다만 사유 없이 비워두면 그 자체가 결함이다.
+    required_items:
+      - { name: "설비 목록",   field: null, manual_ref: facility_equipment }
+      - { name: "제외 사유",   field: null, manual_ref: facility_equipment }
+    not_applicable: []
+    aws_collectable: []
+    manual_only: true
+
+  시설:
+    description: "건물·전산실 위치 등 물리 시설. 설비와 같은 이유로 수기."
+    required_items:
+      - { name: "시설 목록",   field: null, manual_ref: facility_site }
+      - { name: "제외 사유",   field: null, manual_ref: facility_site }
+    not_applicable: []
+    aws_collectable: []
+    manual_only: true
