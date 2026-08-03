@@ -1,0 +1,176 @@
+# 계약 v1.0 자산 레코드 → 실물 자산관리대장 매핑
+# 최종 데이터를 엑셀로 변환할 때의 형식 규정
+#
+# 원본: 03. 정보자산관리지침 별첨 클라우드 보안인증(SaaS) 정보자산목록.xlsx
+#       (정보자산관리지침 제6조②가 이 파일을 자산목록으로 지정한다)
+#
+# 양식은 자산유형별로 시트가 갈리고 시트마다 컬럼이 다르다. 그래서 매핑도
+# 시트 단위로 쓴다. columns 는 원본 양식의 컬럼을 순서까지 그대로 옮긴 것이고,
+# certification_columns 는 양식에 없지만 ISMS-P 1.2.1이 요구해서 덧붙이는 칸이다.
+#
+# 양식 원본에 관리책임자와 보안등급 칸이 없다. 양식만 채우면 1.2.1 ②(중요도
+# 결정·보안등급 부여)와 CSAP 3.1.2(책임자 지정)를 증적하지 못한다. 그래서 두
+# 묶음을 색으로 갈라서 낸다.
+#
+# from 표기
+#   seq            연번
+#   const:VALUE    고정값
+#   manual         AWS API로 못 얻는 칸. 수기 입력 시트로 넘긴다
+#   fn:NAME        reporter/xlsx.py 의 조립 함수 (여러 필드를 한 칸에)
+#   grade:AXIS     등급 제안
+#   그 밖           계약 v1.0 필드명 (평면. infra_facts 만 두 단계)
+
+sheets:
+  - name: OS (Linux)
+    title: 서버 시스템 목록
+    asset_class: 서버시스템
+    description: Cloud 서비스 제공하기 위한 목적으로 사용되는 서버 시스템
+    when: { asset_type: 서버, os_family: linux }
+    groups: { 구분: 1, 자산상세내역: 8, 관리형태: 3 }
+    columns: &server_columns
+      - { label: 번호, from: seq }
+      - { label: 호스트명, from: asset_name }
+      - { label: VM / Hardware, from: "const:VM" }   # 클라우드 인스턴스는 전부 가상
+      - { label: OS, from: os }
+      - { label: OS버전, from: version }
+      - { label: IP, from: ip_private }
+      - { label: 추가IP, from: "fn:extra_ips" }
+      - { label: 용도 (목적 및 기능), from: usage }
+      - { label: 설치서버, from: manual }            # 서버에 올린 서비스는 API로 안 보임
+      - { label: 관리부서, from: owner_dept }
+      - { label: 운용자, from: owner_manager }
+      - { label: 위치 (상세위치), from: "fn:location" }
+
+  - name: OS (Windows)
+    title: 서버 시스템 목록
+    asset_class: 서버시스템
+    description: Cloud 서비스 제공하기 위한 목적으로 사용되는 서버 시스템
+    when: { asset_type: 서버, os_family: windows }
+    groups: { 구분: 1, 자산상세내역: 8, 관리형태: 3 }
+    columns: *server_columns
+
+  # 양식에 없는 시트다. 수집기의 os 가 OUT_OF_SCOPE(SSM 미도입)라 Linux·Windows를
+  # 가를 수 없어서, 서버를 아무 시트에나 넣는 대신 여기 모아 갭으로 드러낸다.
+  - name: 서버 (OS 미확인)
+    title: 서버 시스템 목록 (OS 미확인)
+    asset_class: 서버시스템
+    description: OS를 확인하지 못해 Linux·Windows 시트로 배정하지 못한 서버
+    when: { asset_type: 서버, os_family: unknown }
+    groups: { 구분: 1, 자산상세내역: 8, 관리형태: 3 }
+    columns: *server_columns
+
+  - name: DB
+    title: DBMS 목록
+    asset_class: DBMS
+    description: Cloud 서비스 제공하기 위한 목적으로 사용되는 DBMS
+    when: { asset_type: 데이터(DBMS) }
+    groups: { 구분: 1, 자산상세내역: 4, 관리형태: 3 }
+    columns:
+      - { label: 번호, from: seq }
+      - { label: DBMS명 (종류), from: "fn:dbms_name" }      # engine + version
+      - { label: 설치 서버 호스트명, from: "fn:db_host" }   # 관리형이라 설치 서버가 없다
+      - { label: IP, from: "fn:db_address" }                # RDS는 IP 대신 엔드포인트
+      - { label: 용도 (목적 및 기능), from: usage }
+      - { label: 관리부서, from: owner_dept }
+      - { label: 운용자, from: owner_manager }
+      - { label: 위치 (상세위치), from: "fn:location" }
+
+  - name: WEB·WAS
+    title: WEB / WAS 목록
+    asset_class: 응용프로그램
+    description: Cloud 서비스 제공하기 위한 목적으로 사용되는 응용프로그램
+    when: { asset_type: 정보시스템(응용프로그램) }
+    groups: { 구분: 1, 자산상세내역: 6, 관리형태: 3 }
+    columns:
+      - { label: 번호, from: seq }
+      - { label: 자산명 (관리명칭), from: asset_name }
+      - { label: VM / Hardware, from: "const:VM" }
+      - { label: OS, from: os }
+      - { label: s/w version, from: version }
+      - { label: IP, from: ip_private }
+      - { label: 용도 (목적 및 기능), from: usage }
+      - { label: 관리부서, from: owner_dept }
+      - { label: 운용자, from: owner_manager }
+      - { label: 위치 (상세위치), from: "fn:location" }
+
+  - name: PC&VDI
+    title: PC 목록
+    asset_class: PC
+    description: 업무용 PC 및 가상 데스크톱
+    when: { asset_type: PC }
+    groups: { 구분: 1, 자산상세내역: 4, 관리형태: 2 }
+    columns:
+      - { label: 번호, from: seq }
+      - { label: 모델명, from: model }
+      - { label: OS, from: os }
+      - { label: PC IP / VDI IP, from: ip_private }
+      - { label: 용도, from: usage }
+      - { label: 소속팀, from: owner_dept }
+      - { label: 사용자 (소속/명), from: owner_manager }
+
+  - name: 오픈소스
+    title: 오픈 소프트웨어 목록
+    asset_class: 오픈 소프트웨어
+    description: 서비스 개발·운영에 사용된 오픈 소프트웨어
+    when: { asset_type: 소프트웨어 }
+    groups: { 구분: 1, 자산상세내역: 4, 관리형태: 2 }
+    columns:
+      - { label: 번호, from: seq }
+      - { label: 자산명, from: asset_name }
+      - { label: 버전, from: version }
+      - { label: 수량, from: "const:1" }
+      - { label: 용도 (목적 및 기능), from: usage }
+      - { label: 관리부서, from: owner_dept }
+      - { label: 운용자, from: owner_manager }
+
+  - name: 기타
+    title: 기타 자산 목록
+    asset_class: 기타
+    description: 네트워크장비·보안시스템·저장정보·가상자원 등 전용 시트가 없는 자산
+    when:
+      asset_type: [네트워크장비, 보안시스템, 정보, 가상자원, 설비, 시설]
+    groups: { 구분: 1, 자산상세내역: 6, 관리형태: 3, 비고: 1 }
+    columns:
+      - { label: 번호, from: seq }
+      - { label: 구분, from: asset_type }
+      - { label: 자산명, from: asset_name }
+      - { label: OS, from: os }
+      - { label: 버전, from: version }
+      - { label: IP, from: ip_private }
+      - { label: 용도 (목적 및 기능), from: usage }
+      - { label: 관리부서, from: owner_dept }
+      - { label: 운용자, from: owner_manager }
+      - { label: 위치 (상세위치), from: "fn:location" }
+      - { label: 비고, from: "fn:resource_ref" }
+
+# 양식에는 없지만 인증기준이 요구해서 모든 시트 뒤에 덧붙이는 칸
+certification_columns:
+  - { label: 관리책임자, from: owner_responsible, basis: "CSAP 3.1.2 책임자 지정" }
+  - { label: 개인정보 보유, from: has_personal_info, basis: "ISMS-P 1.2.1 ② 법적 요구사항" }
+  - { label: 인증범위, from: in_scope, basis: "인증신청서 인증범위 대상" }
+  - { label: 도입일자, from: "fn:created_date", basis: "인증신청서 자산 변경 현황" }
+  - { label: 기밀성(제안), from: "grade:confidentiality", basis: "정보자산관리지침 별지 제3호" }
+  - { label: 무결성(제안), from: "grade:integrity", basis: "정보자산관리지침 별지 제3호" }
+  - { label: 가용성(제안), from: "grade:availability", basis: "정보자산관리지침 별지 제3호" }
+  - { label: 종합(제안), from: "grade:overall", basis: "세 축 중 최고값" }
+  - { label: 확정등급, from: "grade:confirmed", basis: "관리책임자가 검토 후 직접 기입" }
+
+# 인증신청 양식 v2.5 '인증범위내 주요 자산' 요약표
+summary_table:
+  columns: [적용 서비스 (용도 및 주요기능), 구분, 수량, 자산위치, 관리부서]
+  category_map:            # 계약 asset_type → 신청서 구분
+    서버: 서버
+    데이터(DBMS): 서버
+    네트워크장비: 네트워크
+    보안시스템: 보안장비
+    PC: 주요 단말
+    정보시스템(응용프로그램): 어플리케이션
+    소프트웨어: 어플리케이션
+    정보: 어플리케이션
+    가상자원: 어플리케이션
+    설비: 기타
+    시설: 기타
+  count_rule: >-
+    가상화로 운영하는 경우 서버 수는 OS 기준으로 산정한다(인증신청 양식 v2.5).
+    동일 네트워크 구간 내 이중화는 네트워크 존과 OS 세부 버전·모델이 완전히
+    동일할 때만 중복 제외 대상이므로, 도구는 후보만 표시하고 제외는 하지 않는다.
