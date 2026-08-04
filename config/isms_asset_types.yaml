@@ -25,6 +25,12 @@ asset_types:
       - { name: "관리 부서명",   field: owner_dept }
       - { name: "관리 실무자",   field: owner_manager }
       - { name: "관리 책임자",   field: owner_responsible }
+      - { name: "OS",            field: os }
+      - { name: "OS 버전",       field: version }
+      - { name: "개인정보 보유 여부", field: has_personal_info }
+      - { name: "적용 서비스",   field: service_name }
+      - { name: "도입 일자",     field: created_at }
+      - { name: "인증범위 포함", field: in_scope }
       - { name: "보안등급",      field: null, manual_ref: security_grade }
     not_applicable: [endpoint, personal_info_items]
     aws_collectable: [ec2_instance]
@@ -40,6 +46,12 @@ asset_types:
       - { name: "관리 책임자",        field: owner_responsible }
       - { name: "저장 시스템",        field: az }
       - { name: "저장 위치",          field: endpoint }
+      - { name: "용도",               field: usage }
+      - { name: "DBMS 종류",          field: engine }
+      - { name: "DBMS 버전",          field: version }
+      - { name: "적용 서비스",        field: service_name }
+      - { name: "도입 일자",          field: created_at }
+      - { name: "인증범위 포함",      field: in_scope }
       - { name: "보안등급",           field: null, manual_ref: security_grade }
     not_applicable: [ip_private, os, model]
     aws_collectable: [rds_instance, rds_cluster]
@@ -52,6 +64,9 @@ asset_types:
       - { name: "엔드포인트",    field: endpoint }
       - { name: "관리 부서명",   field: owner_dept }
       - { name: "관리 책임자",   field: owner_responsible }
+      - { name: "적용 서비스",   field: service_name }
+      - { name: "도입 일자",     field: created_at }
+      - { name: "인증범위 포함", field: in_scope }
       - { name: "업무 기능",     field: null, manual_ref: app_business_function }
       - { name: "보안등급",      field: null, manual_ref: security_grade }
     not_applicable: [ip_private]
@@ -67,6 +82,10 @@ asset_types:
       - { name: "수량",         field: null, manual_ref: sw_license_count }
       - { name: "라이선스 종류", field: null, manual_ref: sw_license_type }
       - { name: "관리 부서명",  field: owner_dept }
+      - { name: "적용 서비스",  field: service_name }
+      - { name: "도입 일자",    field: created_at }
+      - { name: "인증범위 포함", field: in_scope }
+      - { name: "보안등급",     field: null, manual_ref: security_grade }
     not_applicable: [ip_private, encryption_at_rest]
     aws_collectable: []
 
@@ -78,6 +97,8 @@ asset_types:
       - { name: "관리 부서명",   field: owner_dept }
       - { name: "관리 책임자",   field: owner_responsible }
       - { name: "인증범위 포함", field: in_scope }
+      - { name: "적용 서비스",   field: service_name }
+      - { name: "도입 일자",     field: created_at }
       - { name: "보안등급",      field: null, manual_ref: security_grade }
     not_applicable: [os, has_personal_info, personal_info_items, encryption_at_rest]
     aws_collectable: [ec2_security_group, ec2_vpc, ec2_subnet, ec2_address]
@@ -97,6 +118,10 @@ asset_types:
       - { name: "개인정보유출방지시스템", presence: [], manual_ref: security_system_dlp }
       - { name: "관리 부서명",          field: owner_dept }
       - { name: "관리 책임자",          field: owner_responsible }
+      - { name: "적용 서비스",          field: service_name }
+      - { name: "도입 일자",            field: created_at }
+      - { name: "인증범위 포함",        field: in_scope }
+      - { name: "보안등급",             field: null, manual_ref: security_grade }
     not_applicable: [ip_private, has_personal_info, personal_info_items]
     aws_collectable:
       [wafv2_web_acl, guardduty_detector, network_firewall, kms_key,
@@ -111,6 +136,10 @@ asset_types:
       - { name: "용도",         field: usage }
       - { name: "사용자",       field: null, manual_ref: pc_user_identity }
       - { name: "소속팀",       field: owner_dept }
+      - { name: "적용 서비스",  field: service_name }
+      - { name: "도입 일자",    field: created_at }
+      - { name: "인증범위 포함", field: in_scope }
+      - { name: "보안등급",     field: null, manual_ref: security_grade }
     not_applicable: [endpoint, encryption_at_rest]
     aws_collectable: []
 
@@ -127,6 +156,9 @@ asset_types:
       - { name: "개인정보 보유 여부", field: has_personal_info }
       - { name: "(개인)정보 항목명",  field: personal_info_items }
       - { name: "수집 출처",         field: data_source }
+      - { name: "적용 서비스",       field: service_name }
+      - { name: "도입 일자",         field: created_at }
+      - { name: "인증범위 포함",     field: in_scope }
       - { name: "문서적 정보",       field: null, manual_ref: paper_documents }
       - { name: "보안등급",          field: null, manual_ref: security_grade }
     not_applicable: [ip_private, os, model, endpoint]
@@ -140,7 +172,12 @@ asset_types:
       - { name: "자산명",       field: asset_name }
       - { name: "관리 부서명",  field: owner_dept }
       - { name: "실행 주체",    field: parent_id }
+      - { name: "운영 환경",    field: environment }
+      - { name: "적용 서비스",  field: service_name }
+      - { name: "도입 일자",    field: created_at }
+      - { name: "인증범위 포함", field: in_scope }
       - { name: "이미지 승인 여부", field: null, manual_ref: image_approval }
+      - { name: "보안등급",     field: null, manual_ref: security_grade }
     not_applicable: [ip_private, endpoint, os]
     aws_collectable: [ec2_snapshot, ec2_image]
 
