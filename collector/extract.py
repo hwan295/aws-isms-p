@@ -24,6 +24,7 @@ import yaml
 from . import reasons as R
 from .dump import RAW_ROOT, AwsJsonEncoder
 from .manual import annotate, print_manual_summary
+from .safe_call import is_status
 
 log = logging.getLogger(__name__)
 
@@ -483,6 +484,7 @@ def resolve_relations(extract_map: dict, assets: list[dict], dumps: list[dict],
     _resolve_security_groups(assets, dumps)
     _resolve_backup(assets, dumps)
     _resolve_snapshot_counts(assets)
+    _resolve_exposure(assets, dumps)
 
     for asset in assets:
         for key in ("_index_key", "_security_groups", "_parent_ref", "_backupable"):
@@ -655,6 +657,150 @@ def _resolve_snapshot_counts(assets: list[dict]) -> None:
         if asset["resource_type"] != "ec2_volume":
             continue
         asset["infra_facts"]["snapshot_count"] = R.value(counts.get(asset["asset_id"], 0))
+
+
+#: 노출 경로를 찾지 못했을 때의 안내. 아직 안 보는 경로를 명시한다.
+#: "확인한 경로에서는 안 나왔다"까지만 말하고 "노출 없음"으로 단정하지 않는다.
+_EXPOSURE_UNCHECKED = (
+    "ALB·CloudFront·API Gateway·공인 IP에서는 노출 경로가 확인되지 않았습니다. "
+    "Route 53 별칭·Global Accelerator·VPC 엔드포인트는 아직 수집하지 않습니다"
+)
+
+
+def _resolve_exposure(assets: list[dict], dumps: list[dict]) -> None:
+    """exposure_path — 이 자산이 무엇을 통해 외부에 노출되는가.
+
+    공인 IP가 없어도 ALB 뒤에 있으면 외부에 노출된다. 앞단을 안 보면
+    "미노출"로 단정하게 되고 B의 기밀성 룰이 통째로 틀어진다
+    (docs/field-mapping.md §4.2 주석).
+
+    값은 별지 규격의 enum이다 — Direct / ALB / CloudFront / APIGateway.
+    **찾았을 때만 값을 넣는다.** 못 찾으면 OUT_OF_SCOPE로 두고 무엇을 아직
+    안 보는지 적는다. 우리가 보는 경로가 전부가 아니기 때문이다.
+    """
+    internet_lb_arns, lb_dns_by_arn = _internet_facing_lbs(dumps)
+    behind_alb = _alb_target_ids(dumps, internet_lb_arns)
+    cf_buckets, cf_domains = _cloudfront_origins(dumps)
+    internet_lb_dns = {lb_dns_by_arn[a] for a in internet_lb_arns if a in lb_dns_by_arn}
+
+    for asset in assets:
+        facts = asset["infra_facts"]
+        # 선언이 "이 자산유형에 노출 경로라는 개념이 없다"고 말한 것은 덮지 않는다.
+        # 서브넷의 MapPublicIpOnLaunch는 네트워크 설정이지 엔드포인트가 아니다.
+        # 무엇이 노출될 수 있는가는 yaml 선언이 정하고, 2패스는 안 본 것만 채운다.
+        if facts["exposure_path"].get("reason") == R.NOT_APPLICABLE:
+            continue
+
+        kind = asset["resource_type"]
+        serial = (asset.get("serial_no") or {}).get("value")
+        name = (asset.get("asset_name") or {}).get("value")
+        endpoint = (asset.get("endpoint") or {}).get("value")
+
+        path = None
+        if kind == "ec2_instance" and serial in behind_alb:
+            path = "ALB"
+        elif kind == "s3_bucket" and name in cf_buckets:
+            path = "CloudFront"
+        elif kind == "elbv2_load_balancer":
+            if endpoint in cf_domains:
+                path = "CloudFront"
+            elif asset["asset_id"] in internet_lb_arns or endpoint in internet_lb_dns:
+                path = "Direct"
+        elif kind in ("apigateway_rest_api", "apigatewayv2_api"):
+            if facts["public_exposed"].get("value") is True:
+                path = "APIGateway"
+        elif kind == "cloudfront_distribution":
+            path = "Direct"
+
+        if path is None and facts["public_exposed"].get("value") is True:
+            # 앞단이 아니라 자기 자신이 공개돼 있다.
+            path = "Direct"
+
+        facts["exposure_path"] = (
+            R.value(path) if path
+            else R.missing(R.OUT_OF_SCOPE, detail=_EXPOSURE_UNCHECKED)
+        )
+
+
+def _internet_facing_lbs(dumps: list[dict]) -> tuple[set[str], dict[str, str]]:
+    """외부에 열린 로드밸런서의 ARN과, ARN → DNS 이름."""
+    arns: set[str] = set()
+    dns: dict[str, str] = {}
+    for dump in dumps:
+        if dump["meta"]["service"] != "frontend":
+            continue
+        for lb in _rows(dump["data"].get("describe_load_balancers"), "LoadBalancers"):
+            arn = lb.get("LoadBalancerArn")
+            if not arn:
+                continue
+            dns[arn] = lb.get("DNSName")
+            if str(lb.get("Scheme", "")).lower() == "internet-facing":
+                arns.add(arn)
+    return arns, dns
+
+
+def _alb_target_ids(dumps: list[dict], internet_lb_arns: set[str]) -> set[str]:
+    """외부에 열린 ALB 뒤에 등록된 인스턴스 ID.
+
+    타깃그룹이 내부 전용 LB에만 붙어 있으면 외부 노출이 아니다.
+    """
+    found: set[str] = set()
+    for dump in dumps:
+        if dump["meta"]["service"] != "frontend":
+            continue
+        data = dump["data"]
+        health = data.get("target_health") or {}
+        for group in _rows(data.get("describe_target_groups"), "TargetGroups"):
+            attached = set(group.get("LoadBalancerArns") or [])
+            if not attached & internet_lb_arns:
+                continue
+            for row in _rows(health.get(group.get("TargetGroupArn")),
+                             "TargetHealthDescriptions"):
+                target_id = (row.get("Target") or {}).get("Id")
+                if target_id:
+                    found.add(target_id)
+    return found
+
+
+def _cloudfront_origins(dumps: list[dict]) -> tuple[set[str], set[str]]:
+    """CloudFront 오리진 — (S3 버킷명, 그 밖의 도메인).
+
+    오리진 도메인이 'bucket.s3.amazonaws.com' 또는
+    'bucket.s3.<region>.amazonaws.com' 이면 앞부분이 버킷명이다.
+    """
+    buckets: set[str] = set()
+    domains: set[str] = set()
+    for dump in dumps:
+        if dump["meta"]["service"] != "cloudfront":
+            continue
+        for detail in (dump["data"].get("distributions") or {}).values():
+            config = _dig_dict(detail, ("detail", "Distribution", "DistributionConfig"))
+            for origin in _rows(config.get("Origins"), "Items"):
+                domain = origin.get("DomainName")
+                if not domain:
+                    continue
+                head, sep, _ = domain.partition(".s3.")
+                if sep and head:
+                    buckets.add(head)
+                else:
+                    domains.add(domain)
+    return buckets, domains
+
+
+def _rows(node: Any, key: str) -> list[dict]:
+    """응답에서 목록을 꺼낸다. 실패 표지이거나 모양이 다르면 빈 목록."""
+    if is_status(node) or not isinstance(node, dict):
+        return []
+    rows = node.get(key)
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _dig_dict(node: Any, path: tuple[str, ...]) -> dict:
+    for part in path:
+        if is_status(node) or not isinstance(node, dict):
+            return {}
+        node = node.get(part)
+    return node if isinstance(node, dict) else {}
 
 
 # --------------------------------------------------------------------------
