@@ -130,6 +130,35 @@ def build_environment(region: str = REGION, suffix: str = "") -> dict:
     )
     created["db_instances"] = {"prd": prd_db, "dev": dev_db}
 
+    # 외부 ALB와 그 뒤의 공인 IP 없는 서버.
+    # 공인 IP만 보면 미노출로 보이는 자산이 있어야 exposure_path 조인을 검증할 수 있다.
+    subnets = [
+        ec2.create_subnet(VpcId=vpc_id, CidrBlock=f"172.31.{n}.0/24",
+                          AvailabilityZone=f"{region}{z}")["Subnet"]["SubnetId"]
+        for n, z in ((210, "a"), (211, "b"))
+    ]
+    elb = boto3.client("elbv2", region_name=region)
+    alb = elb.create_load_balancer(
+        Name=f"prd-alb{suffix}"[:32], Subnets=subnets, SecurityGroups=[open_sg],
+        Scheme="internet-facing", Type="application",
+        Tags=[{"Key": "Name", "Value": "prd-alb"}],
+    )["LoadBalancers"][0]
+    tg = elb.create_target_group(
+        Name=f"prd-tg{suffix}"[:32], Protocol="HTTP", Port=80, VpcId=vpc_id,
+    )["TargetGroups"][0]
+    elb.create_listener(
+        LoadBalancerArn=alb["LoadBalancerArn"], Protocol="HTTPS", Port=443,
+        DefaultActions=[{"Type": "forward", "TargetGroupArn": tg["TargetGroupArn"]}])
+    backend = ec2.run_instances(
+        ImageId=AMI_ID, MinCount=1, MaxCount=1, InstanceType="t3.large",
+        SubnetId=subnets[0], SecurityGroupIds=[closed_sg],
+        TagSpecifications=[{"ResourceType": "instance",
+                            "Tags": [{"Key": "Name", "Value": "prd-was-02"}]}],
+    )["Instances"][0]["InstanceId"]
+    elb.register_targets(TargetGroupArn=tg["TargetGroupArn"], Targets=[{"Id": backend}])
+    created["load_balancer"] = alb["LoadBalancerArn"]
+    created["instances"]["alb_backend"] = backend
+
     return created
 
 

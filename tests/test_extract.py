@@ -185,9 +185,35 @@ def test_안_불러본_API는_OUT_OF_SCOPE이지_NOT_APPLICABLE이_아니다(raw
 
     assert server["os"]["reason"] == R.OUT_OF_SCOPE
     assert "ssm" in server["os"]["hint"]
-    exposure = server["infra_facts"]["exposure_path"]
-    assert exposure["reason"] == R.OUT_OF_SCOPE
-    assert exposure["value"] is None, "안 불러본 것을 값으로 단정하면 안 된다"
+
+    # 노출 경로는 찾았을 때만 값이 붙는다. 못 찾은 것을 "미노출"로 적지 않는다.
+    for block in payload["asset_types"].values():
+        for asset in block["assets"]:
+            exposure = asset["infra_facts"]["exposure_path"]
+            if exposure["value"] is None:
+                assert exposure["reason"] in (R.OUT_OF_SCOPE, R.NOT_APPLICABLE), asset["asset_id"]
+            else:
+                assert exposure["value"] in (
+                    "Direct", "ALB", "CloudFront", "APIGateway"), asset["asset_id"]
+
+
+def test_공인IP가_없어도_ALB_뒤에_있으면_노출로_잡힌다(raw_run):
+    """이 조인이 없으면 ALB 뒤 자산이 '미노출'로 새어 나가 기밀성 등급이 통째로 틀린다."""
+    payload = do_extract(raw_run)
+    backend = find(payload, "서버", lambda a: a["asset_name"]["value"] == "prd-was-02")
+
+    assert backend["infra_facts"]["public_exposed"]["value"] is False
+    assert backend["infra_facts"]["exposure_path"]["value"] == "ALB"
+
+
+def test_노출_경로_판정이_선언된_NOT_APPLICABLE을_덮지_않는다(raw_run):
+    """서브넷의 MapPublicIpOnLaunch는 네트워크 설정이지 엔드포인트가 아니다.
+
+    무엇이 노출될 수 있는가는 yaml 선언이 정하고, 2패스는 안 본 것만 채운다.
+    """
+    payload = do_extract(raw_run)
+    subnet = find(payload, "네트워크장비", lambda a: a["resource_type"] == "ec2_subnet")
+    assert subnet["infra_facts"]["exposure_path"]["reason"] == R.NOT_APPLICABLE
 
 
 def test_조회_실패는_설정부재로_뭉개지지_않는다(raw_run):

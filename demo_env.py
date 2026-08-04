@@ -170,6 +170,17 @@ def build(region: str = REGION) -> dict:
     elb.create_listener(
         LoadBalancerArn=alb["LoadBalancerArn"], Protocol="HTTPS", Port=443,
         DefaultActions=[{"Type": "forward", "TargetGroupArn": tg["TargetGroupArn"]}])
+    # 공인 IP가 없는 WAS를 ALB 뒤에 붙인다. 공인 IP만 보면 "미노출"로 보이지만
+    # 실제로는 외부에서 닿는 자산이다. exposure_path가 필요한 이유가 이 한 대다.
+    private_was = ec2.run_instances(
+        ImageId=AMI_ID, MinCount=1, MaxCount=1, InstanceType="t3.large",
+        SubnetId=subnets[0], SecurityGroupIds=[internal_sg],
+        TagSpecifications=[{"ResourceType": "instance", "Tags": _tags(
+            Name="prd-was-02", **{**COMPLETE, "InventoryCategory": "WAS"})}],
+    )["Instances"][0]["InstanceId"]
+    made["instances"]["alb_backend"] = private_was
+    elb.register_targets(
+        TargetGroupArn=tg["TargetGroupArn"], Targets=[{"Id": private_was}])
     # 내부용 NLB — 태그가 하나도 없다
     elb.create_load_balancer(
         Name="int-batch-nlb", Subnets=subnets, Scheme="internal", Type="network")
