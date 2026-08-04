@@ -206,6 +206,28 @@ def test_공인IP가_없어도_ALB_뒤에_있으면_노출로_잡힌다(raw_run)
     assert backend["infra_facts"]["exposure_path"]["value"] == "ALB"
 
 
+def test_고객관리형_키는_SSE_KMS_CMK로_갈린다(raw_run):
+    """KeyManager를 안 보면 룰 C-06(내부 전용 + CMK)을 쓸 수 없다.
+
+    describe_key 응답은 security 수집기가 이미 담아 왔다. 추가 호출 없이 조인만 한다.
+    """
+    payload = do_extract(raw_run)
+    volume = find(payload, "정보",
+                  lambda a: a["infra_facts"]["encryption_at_rest"]["value"] == "SSE-KMS-CMK")
+    assert volume["resource_type"] == "ec2_volume"
+
+
+def test_키를_못_가르면_SSE_KMS로_남긴다(raw_run):
+    """확인 못 한 것을 AWS 관리형으로 단정하면 C-06이 잘못 발동한다."""
+    payload = do_extract(raw_run)
+    for block in payload["asset_types"].values():
+        for asset in block["assets"]:
+            value = asset["infra_facts"]["encryption_at_rest"].get("value")
+            if value is not None:
+                assert value in ("None", "SSE-S3", "SSE-ECR", "SSE-KMS",
+                                 "SSE-KMS-AWS", "SSE-KMS-CMK"), asset["asset_id"]
+
+
 def test_노출_경로_판정이_선언된_NOT_APPLICABLE을_덮지_않는다(raw_run):
     """서브넷의 MapPublicIpOnLaunch는 네트워크 설정이지 엔드포인트가 아니다.
 

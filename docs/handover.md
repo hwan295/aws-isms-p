@@ -490,7 +490,7 @@ EC2는 `Tags`(대문자 리스트), RDS는 `TagList`, S3는 `get_bucket_tagging(
 | `in_asg` | bool | `aws:autoscaling:groupName` 태그 존재 여부 |
 | `public_exposed` | bool | EC2 공인 IP / RDS `PubliclyAccessible` / S3 `IsPublic` |
 | `exposure_path` | enum | **2패스 조인.** `Direct`/`ALB`/`CloudFront`/`APIGateway`. 찾았을 때만 값이 붙는다 |
-| `encryption_at_rest` | enum | `None` / `SSE-S3` / `SSE-ECR` / `SSE-KMS` (아래 주의) |
+| `encryption_at_rest` | enum | **2패스 조인.** `None`/`SSE-S3`/`SSE-ECR`/`SSE-KMS`/`SSE-KMS-CMK`/`SSE-KMS-AWS` |
 | `encryption_in_transit` | bool | ALB 리스너 프로토콜 / CloudFront ViewerProtocolPolicy |
 | `open_sg_rule` | bool | **2패스 조인.** 0.0.0.0/0 인바운드 존재 여부 |
 | `open_sg_detail` | list | `["sg-0abc:22/tcp"]` — 포트까지. 근거 문구를 구체적으로 쓰기 위해 |
@@ -843,8 +843,9 @@ moto는 `describe_snapshots(OwnerIds=['self'])` 필터를 구현하지 않아
    `meta.reason_codes_not_absence`에 명시돼 있다.
 2. **`NOT_APPLICABLE`을 갭으로 세지 말 것.** 개념이 없는 것이지 미확인이 아니다.
 3. **`collection_issues`가 비어 있지 않으면 "0건"을 신뢰하지 말 것.**
-4. **`encryption_at_rest == "SSE-KMS-CMK"`를 기대하지 말 것.** 나오지 않는다.
-   **룰 C-06은 KMS 수집기가 생기기 전까지 사용 불가.**
+4. **`SSE-KMS`를 AWS 관리형 키로 읽지 말 것.** `갱신`
+   `SSE-KMS-CMK`/`SSE-KMS-AWS`는 `KeyManager`를 확인한 결과이고, `SSE-KMS`로 남은 것은
+   **키를 못 가른 것**이다. **룰 C-06은 `SSE-KMS-CMK`인 자산에만 적용할 것.**
 5. **`exposure_path`가 `OUT_OF_SCOPE`인 것을 "외부 미노출"로 읽지 말 것.** `갱신`
    값이 있으면(`Direct`/`ALB`/`CloudFront`/`APIGateway`) 그 경로로 노출된 것이 확정이다.
    없으면 **우리가 보는 경로에서 안 나왔다**는 뜻이지 미노출이라는 뜻이 아니다.
@@ -866,7 +867,7 @@ moto는 `describe_snapshots(OwnerIds=['self'])` 필터를 구현하지 않아
 | **태그 미입력 14,000여 건** | **가장 큰 병목.** 도구가 아니라 조직이 푸는 문제다. 규약은 `docs/tag-standard.md`에 있고, 태그를 달면 다음 실행부터 자동으로 채워진다 |
 | 수기 시트 역방향 병합 | 담당자가 채운 내용이 `assets.json`에 합쳐지지 않는다. 자산관리대장이 완성되려면 필요 |
 | SSM 수집기 | `os`·`version`이 항상 `OUT_OF_SCOPE`. 안내서가 요구하는 항목이고 **소프트웨어 유형 0건의 원인**이다. moto가 SSM Inventory를 구현하지 않아 실계정에서만 검증 가능 |
-| KMS 수집기 | `SSE-KMS-CMK` 판별 불가 → 룰 C-06 사용 불가 |
+| KMS 키 참조가 ARN이 아닌 경우 | RDS는 moto가 `default_kms_key_id`를 주고 실계정은 ARN을 준다. ARN이 아니면 `SSE-KMS`로 남는다 |
 | 노출 경로 나머지 | Route 53 별칭·Global Accelerator·VPC 엔드포인트는 아직 안 본다. `exposure_path`가 `OUT_OF_SCOPE`인 자산이 여기 해당한다 |
 | 설비·시설 | CSP 책임영역이라 **수기가 정답**이다. 수집기를 만들 대상이 아니다 |
 | `created_at` (네트워크장비) | VPC·서브넷·보안그룹·EIP는 describe 응답에 생성 시각이 없다. Config·CloudTrail 수집 필요 |
@@ -881,6 +882,7 @@ moto는 `describe_snapshots(OwnerIds=['self'])` 필터를 구현하지 않아
 |---|---|
 | ELB·CloudFront 수집기 | `collector/services/frontend.py` 신설. `exposure_path`가 2패스 조인으로 확정된다 |
 | 정보시스템·PC 수집기 | 정보시스템은 frontend, PC는 WorkSpaces(`inventory.py`)가 담당. **0건 유형 5종 → 3종** |
+| KMS CMK 판별 | 2패스가 `KeyManager`를 조인해 `SSE-KMS-CMK`/`SSE-KMS-AWS`로 가른다. **룰 C-06 사용 가능.** 추가 호출 없음 — security 수집기가 이미 `describe_key`를 부르고 있었다 |
 
 ---
 

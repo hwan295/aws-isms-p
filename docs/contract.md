@@ -143,8 +143,10 @@
    (그 리전·리소스는 조회 자체가 실패했다)
 4. `asset_count == 0`을 볼 때 **`collector_exists`를 함께 볼 것**
    `true`면 "확인했더니 없다"(결함 소지), `false`면 "확인하지 않았다"
-5. `encryption_at_rest == "SSE-KMS-CMK"`를 **기대하지 말 것.** 나오지 않는다
-   → **룰 C-06 사용 불가** (KMS 수집기가 있어야 CMK 판별 가능)
+5. `encryption_at_rest`가 `SSE-KMS`인 것을 **AWS 관리형 키로 읽지 말 것.**
+   `SSE-KMS-CMK`/`SSE-KMS-AWS`로 갈린 것은 `KeyManager`를 확인한 결과이고,
+   `SSE-KMS`로 남은 것은 **키를 못 가른 것**이다(키가 수집 범위 밖이거나 참조가 ARN이 아님).
+   → **룰 C-06은 `SSE-KMS-CMK`인 자산에만 적용할 것.**
 6. `exposure_path`가 `OUT_OF_SCOPE`인 것을 **"외부 미노출"로 읽지 말 것.**
    값이 있으면(`Direct`/`ALB`/`CloudFront`/`APIGateway`) 그 경로로 노출된 것이 확정이다.
    없으면 **우리가 보는 경로에서 안 나왔다는 뜻**이고 미노출이라는 뜻이 아니다
@@ -174,14 +176,17 @@
 | `in_asg` | bool | |
 | `public_exposed` | bool | |
 | `exposure_path` | enum | `Direct`/`ALB`/`CloudFront`/`APIGateway`. **찾았을 때만 값이 붙는다** |
-| `encryption_at_rest` | enum | `None` / `SSE-S3` / `SSE-ECR` / **`SSE-KMS`** (아래 참고) |
+| `encryption_at_rest` | enum | `None` / `SSE-S3` / `SSE-ECR` / `SSE-KMS` / **`SSE-KMS-CMK`** / `SSE-KMS-AWS` |
 | `encryption_in_transit` | bool | **현재 항상 `OUT_OF_SCOPE`** |
 | `open_sg_rule` `open_sg_detail` | bool / list | `["sg-0abc:22/tcp"]` — 포트까지 |
 | `versioning_enabled` `object_lock` `logging_enabled` | bool | S3 |
 | `state` | str | |
 
-> **`encryption_at_rest`에 `SSE-KMS-CMK`는 없다.** 고객관리형 키인지 AWS 관리형인지는
-> `kms:DescribeKey`를 봐야 하는데 아직 안 부른다. `SSE-KMS`까지만 적는다.
+> **`SSE-KMS-CMK`는 2패스가 `kms.describe_key`의 `KeyManager`를 조인해 붙인다.**
+> 자원의 키 참조(EBS·RDS·스냅샷의 `KmsKeyId`, S3의 `KMSMasterKeyID`, ECR의 `kmsKey`)를
+> 수집한 KMS 키 목록과 맞춰 `CUSTOMER`면 `SSE-KMS-CMK`, `AWS`면 `SSE-KMS-AWS`로 간다.
+> **못 맞추면 `SSE-KMS` 그대로 둔다** — "KMS로 암호화됐다"는 여전히 참이고,
+> 확인 못 한 것을 AWS 관리형으로 단정하면 C-06이 잘못 발동한다.
 >
 > **`SSE-ECR`은 ECR 리포지토리 전용이다.** ECR의 `AES256`은 ECR이 관리하는 키이고
 > S3가 아니다. 서비스 관리 키라는 점은 `SSE-S3`와 같지만 출처가 다르므로 갈라 적는다.
