@@ -67,21 +67,32 @@
 - **모든 자산이 같은 키를 갖는다.** 그 자산유형에 없는 개념은 `NOT_APPLICABLE`로 채워진다.
   키 존재 여부를 확인할 필요가 없다.
 
-### 계약 필드 38종
+### 계약 필드 39종
 
 | 분류 | 필드 |
 |---|---|
 | 식별 | `asset_name` `serial_no` `model` `version` `engine` |
 | 관리주체 | `owner_dept` `owner_manager` `owner_responsible` `service_name` |
 | 분류·범위 | `usage` `environment` `in_scope` `scope_reason` |
-| 개인정보 | `has_personal_info` `personal_info_items` `data_source` |
+| 개인정보 | `has_personal_info` `personal_info_items` `data_source` `data_classification` |
 | 위치 | `region`* `az` `vpc_id` `subnet_id` `cidr` |
 | 접속 | `ip_private` `ip_public` `endpoint` `port` |
 | 상태 | `lifecycle_state` `created_at` `expires_at` `os` `platform` |
 | 관계 | `parent_id` `relation_type` `attached_to` `image_id` |
 | 기타 | `size_gb` `tenancy` `virtualization` `is_default` `owner_account` |
 
-\* `region`은 평범한 값이다. 위 표에서 이것만 빼면 `{value, reason}` 필드가 38종이다.
+\* `region`은 평범한 값이다. 위 표에서 이것만 빼면 `{value, reason}` 필드가 39종이다.
+
+### `data_classification` — 신규 필드 (기밀성 룰 복구용)
+
+`DataClass` 태그(`public` / `internal` / `confidential`). **정보를 담는 8개 리소스에만 선언**했고
+네트워크장비·보안시스템은 `NOT_APPLICABLE`이다.
+
+`has_personal_info`와 **다른 축**이다. 합치면 "내부용이면서 개인정보를 포함하는 자산"을
+표현할 수 없고 그런 자산이 개인정보 목록에서 빠진다.
+
+이 값이 들어오면 별지 제3호의 **기밀성 접근 범위 3단계 룰을 되살릴 수 있다**
+(`grade_rules.yaml` 머리말에 요청해 둔 필드). 태그 규약은 [`tag-standard.md`](tag-standard.md).
 
 ### `platform` — 신규 필드 (B 조치 필요)
 
