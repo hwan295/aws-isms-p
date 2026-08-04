@@ -73,6 +73,22 @@ items:
     fields: [environment]
     auto_after_fix: true
 
+  data_classification:
+    isms_asset_type: "전체"
+    item_name: "정보 민감도"
+    reason: >
+      자산이 담은 정보가 공개용인지 대외비인지는 조직의 분류 기준이다.
+      AWS는 알 수 없고, 개인정보 보유 여부(HandlePI)와는 다른 축이다.
+      합치면 "내부용이면서 개인정보를 포함하는 자산"을 표현할 수 없다.
+    evidence: "정보자산관리지침 별지 제3호 기밀성 — 접근 범위 3단계(공개/내부/제한)"
+    owner: "각 자산 운영 부서 + 정보보호 담당"
+    action: "DataClass 태그 입력 (public / internal / confidential)"
+    fields: [data_classification]
+    auto_after_fix: true
+    note: >
+      이 값이 없으면 기밀성 등급을 개인정보 유무로 상·하만 낼 수 있고 '중'을 낼 근거가 없다.
+      담당 B가 grade_rules.yaml 주석에 명시적으로 요청해 둔 필드다.
+
   personal_info_holding:
     isms_asset_type: "전체"
     item_name: "개인정보 보유 여부"

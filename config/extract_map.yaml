@@ -61,6 +61,7 @@ resources:
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
       personal_info_items: { tag: "PIItems", transform: csv }
       data_source:       { tag: "DataSource" }
       in_scope:          { tag: "InScope", transform: bool }
@@ -108,6 +109,7 @@ resources:
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
       personal_info_items: { tag: "PIItems", transform: csv }
       data_source:       { tag: "DataSource" }
       in_scope:          { tag: "InScope", transform: bool }
@@ -140,6 +142,7 @@ resources:
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
       personal_info_items: { tag: "PIItems", transform: csv }
       data_source:       { tag: "DataSource" }
       in_scope:          { tag: "InScope", transform: bool }
@@ -187,6 +190,7 @@ resources:
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
       personal_info_items: { tag: "PIItems", transform: csv }
       data_source:       { tag: "DataSource" }
       in_scope:          { tag: "InScope", transform: bool }
@@ -223,6 +227,7 @@ resources:
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
       state:              { path: "Status" }
@@ -270,6 +275,7 @@ resources:
       usage:             { tag: "InventoryCategory" }
       environment:       { tag: "Environment" }
       has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
       service_name:      { tag: "ServiceName" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -298,6 +304,7 @@ resources:
       usage:             { tag: "InventoryCategory" }
       environment:       { tag: "Environment" }
       has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
       service_name:      { tag: "ServiceName" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -583,6 +590,7 @@ resources:
       service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
       encryption_at_rest: { path: "KmsKeyId", transform: present }

@@ -28,6 +28,7 @@ asset_types:
       - { name: "OS",            field: os }
       - { name: "OS 버전",       field: version }
       - { name: "개인정보 보유 여부", field: has_personal_info }
+      - { name: "정보 민감도",   field: data_classification }
       - { name: "적용 서비스",   field: service_name }
       - { name: "도입 일자",     field: created_at }
       - { name: "인증범위 포함", field: in_scope }
@@ -49,6 +50,7 @@ asset_types:
       - { name: "용도",               field: usage }
       - { name: "DBMS 종류",          field: engine }
       - { name: "DBMS 버전",          field: version }
+      - { name: "정보 민감도",        field: data_classification }
       - { name: "적용 서비스",        field: service_name }
       - { name: "도입 일자",          field: created_at }
       - { name: "인증범위 포함",      field: in_scope }
@@ -156,6 +158,7 @@ asset_types:
       - { name: "개인정보 보유 여부", field: has_personal_info }
       - { name: "(개인)정보 항목명",  field: personal_info_items }
       - { name: "수집 출처",         field: data_source }
+      - { name: "정보 민감도",       field: data_classification }
       - { name: "적용 서비스",       field: service_name }
       - { name: "도입 일자",         field: created_at }
       - { name: "인증범위 포함",     field: in_scope }
@@ -173,6 +176,7 @@ asset_types:
       - { name: "관리 부서명",  field: owner_dept }
       - { name: "실행 주체",    field: parent_id }
       - { name: "운영 환경",    field: environment }
+      - { name: "정보 민감도",  field: data_classification }
       - { name: "적용 서비스",  field: service_name }
       - { name: "도입 일자",    field: created_at }
       - { name: "인증범위 포함", field: in_scope }
