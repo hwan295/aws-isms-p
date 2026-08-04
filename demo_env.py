@@ -152,6 +152,56 @@ def build(region: str = REGION) -> dict:
     )
     made["db_instances"] = ["prd-portal-db", "dev-sandbox-db"]
 
+    # 정보시스템 — 외부 노출 경로. 태그 완비 1 / 태그 전무 1로 갈라 갭을 만든다.
+    subnets = [
+        ec2.create_subnet(VpcId=vpc_id, CidrBlock=f"172.31.{n}.0/24",
+                          AvailabilityZone=f"{region}{az}")["Subnet"]["SubnetId"]
+        for n, az in ((200, "a"), (201, "b"))
+    ]
+    elb = boto3.client("elbv2", region_name=region)
+    alb = elb.create_load_balancer(
+        Name="prd-portal-alb", Subnets=subnets, SecurityGroups=[open_sg],
+        Scheme="internet-facing", Type="application",
+        Tags=_tags(Name="prd-portal-alb", **COMPLETE),
+    )["LoadBalancers"][0]
+    # HTTPS 리스너 → encryption_in_transit이 True로 나온다
+    tg = elb.create_target_group(
+        Name="prd-portal-tg", Protocol="HTTP", Port=80, VpcId=vpc_id)["TargetGroups"][0]
+    elb.create_listener(
+        LoadBalancerArn=alb["LoadBalancerArn"], Protocol="HTTPS", Port=443,
+        DefaultActions=[{"Type": "forward", "TargetGroupArn": tg["TargetGroupArn"]}])
+    # 내부용 NLB — 태그가 하나도 없다
+    elb.create_load_balancer(
+        Name="int-batch-nlb", Subnets=subnets, Scheme="internal", Type="network")
+    made["load_balancers"] = ["prd-portal-alb", "int-batch-nlb"]
+
+    # API Gateway — REST 1(태그 완비) / HTTP 1(태그 전무)
+    apigw = boto3.client("apigateway", region_name=region)
+    apigw.create_rest_api(name="prd-portal-api",
+                          tags={"Name": "prd-portal-api", **COMPLETE})
+    boto3.client("apigatewayv2", region_name=region).create_api(
+        Name="legacy-webhook", ProtocolType="HTTP")
+    made["apis"] = ["prd-portal-api", "legacy-webhook"]
+
+    # CloudFront — 전역 서비스다. 오리진을 퍼블릭 버킷으로 잡아
+    # "이 버킷이 CDN 뒤에 있다"는 조인 대상을 만든다.
+    cf = boto3.client("cloudfront", region_name="us-east-1")
+    cf.create_distribution(DistributionConfig={
+        "CallerReference": "demo-portal-cdn",
+        "Comment": "포털 정적 자산 CDN",
+        "Enabled": True,
+        "Origins": {"Quantity": 1, "Items": [{
+            "Id": "corp-public-assets",
+            "DomainName": "corp-public-assets.s3.amazonaws.com",
+            "S3OriginConfig": {"OriginAccessIdentity": ""},
+        }]},
+        "DefaultCacheBehavior": {
+            "TargetOriginId": "corp-public-assets",
+            "ViewerProtocolPolicy": "redirect-to-https",
+        },
+    })
+    made["distributions"] = ["포털 정적 자산 CDN"]
+
     # 보안시스템은 만들지 않는다. 결함사례 1 재현이 목적이다.
     return made
 
@@ -182,6 +232,9 @@ def describe() -> list[str]:
         "버킷 3개       — 암호화·태그 완비 1 / 미암호화·태그 전무 1 / 퍼블릭 1",
         "DB 2대         — 백업 7일·MultiAZ·개인정보 보유 1 / 백업 없음·퍼블릭 1",
         "보안그룹 2개   — 0.0.0.0/0 개방 1 / 내부 전용 1",
+        "로드밸런서 2개 — 외부 ALB(HTTPS·태그 완비) 1 / 내부 NLB(태그 전무) 1",
+        "API GW 2개     — REST(태그 완비) 1 / HTTP(태그 전무) 1",
+        "CloudFront 1개 — 퍼블릭 버킷을 오리진으로. 노출 경로 조인 대상",
         "다른 리전      — 아무도 안 보는 리전에 EC2 1대·버킷 1개 (결함사례 4)",
         "보안시스템     — 일부러 아무것도 만들지 않음 (결함사례 1 재현)",
     ]
