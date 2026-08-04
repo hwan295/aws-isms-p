@@ -352,7 +352,7 @@ snapshots/normalized/{run_id}/assets.json
 | `account_id` / `region` | 명세서 | 클라우드 자산 특정의 최소 식별자 |
 | `run_id` / `collected_at` | 명세서 | 언제 수집됐나 |
 
-### B-4. 자산 레코드 — 계약 필드 35종
+### B-4. 자산 레코드 — 계약 필드 39종
 
 **전부 `{value, reason}` 형태이고, 사유가 있으면 `hint`가 붙는다.**
 
@@ -367,7 +367,7 @@ snapshots/normalized/{run_id}/assets.json
 | `reason` | str \| null | 없는 이유. 정상 수집이면 `null` |
 | `hint` | str (선택) | **담당자가 어떻게 하면 채워지는지.** 있을 때만 붙는다 |
 
-> **모든 자산이 35개 키를 전부 갖는다.** 그 리소스가 선언하지 않은 필드는
+> **모든 자산이 39개 키를 전부 갖는다.** 그 리소스가 선언하지 않은 필드는
 > `NOT_APPLICABLE`로 채워진다. B는 키 존재 여부를 확인할 필요가 없다.
 
 #### 안내서·명세서가 요구하는 필드
@@ -391,7 +391,7 @@ snapshots/normalized/{run_id}/assets.json
 | `created_at` | 명세서 | ISO8601 | 도입일 |
 | `endpoint` | 명세서 | `"prd.xxx.rds.amazonaws.com"` | 접속 지점 |
 | `ip_private` / `ip_public` | `안내서` | `"10.0.1.25"` | IP주소 |
-| `os` | `안내서` | `null` | OS. **현재 항상 `OUT_OF_SCOPE`** — SSM 미수집 |
+| `os` | `안내서` | `null` | OS(배포판·버전). **현재 항상 `OUT_OF_SCOPE`** — SSM 미수집. Linux/Windows 구분은 `platform`을 쓸 것 |
 
 #### 이 프로젝트가 추가한 필드 `신설`
 
@@ -412,6 +412,8 @@ snapshots/normalized/{run_id}/assets.json
 | `attached_to` | `"i-0abc123"` | 볼륨·EIP가 붙은 대상. `parent_id`의 원본 값 |
 | `expires_at` | `"2027-03-01"` | 인증서 만료일. 등급 룰 A-06 입력 |
 | `owner_account` | `"591542846629"` | 스냅샷·이미지 소유 계정. **실계정에서는 항상 수집 계정과 같다.** moto가 `OwnerIds=['self']` 필터를 무시해서 데모가 남의 계정 산출물을 걸러낼 근거로 넣었다 |
+| `platform` `신설` | `"Linux/UNIX"` | OS 계열. `describe_instances`에 이미 있어 추가 호출이 없다. `os`(배포판·버전, SSM 필요)와 다르다. **시트 배정은 이 값을 쓸 것** |
+| `data_classification` `신설` | `"confidential"` | 정보 민감도(`DataClass` 태그). 별지 제3호 기밀성 접근 범위 3단계의 근거. `has_personal_info`와 **다른 축**이라 합치면 안 된다 |
 
 ### B-5. 관계 필드
 
@@ -487,9 +489,9 @@ EC2는 `Tags`(대문자 리스트), RDS는 `TagList`, S3는 `get_bucket_tagging(
 | `multi_az` | bool | RDS `MultiAZ` |
 | `in_asg` | bool | `aws:autoscaling:groupName` 태그 존재 여부 |
 | `public_exposed` | bool | EC2 공인 IP / RDS `PubliclyAccessible` / S3 `IsPublic` |
-| `exposure_path` | enum | **현재 항상 `OUT_OF_SCOPE`.** ELB·CloudFront 수집기 필요 |
-| `encryption_at_rest` | enum | `None` / `SSE-S3` / `SSE-KMS` (아래 주의) |
-| `encryption_in_transit` | bool | **현재 항상 `OUT_OF_SCOPE`** |
+| `exposure_path` | enum | **2패스 조인.** `Direct`/`ALB`/`CloudFront`/`APIGateway`. 찾았을 때만 값이 붙는다 |
+| `encryption_at_rest` | enum | `None` / `SSE-S3` / `SSE-ECR` / `SSE-KMS` (아래 주의) |
+| `encryption_in_transit` | bool | ALB 리스너 프로토콜 / CloudFront ViewerProtocolPolicy |
 | `open_sg_rule` | bool | **2패스 조인.** 0.0.0.0/0 인바운드 존재 여부 |
 | `open_sg_detail` | list | `["sg-0abc:22/tcp"]` — 포트까지. 근거 문구를 구체적으로 쓰기 위해 |
 | `versioning_enabled` | bool | S3 버전관리 |
@@ -500,6 +502,31 @@ EC2는 `Tags`(대문자 리스트), RDS는 `TagList`, S3는 `get_bucket_tagging(
 
 > **사실 수집일 뿐 판정이 아니다.** `encryption_at_rest: "None"`은 사실,
 > "기밀성 2점"은 판정이다. 판정은 B의 몫이다.
+
+#### `exposure_path` — 2패스가 채우는 노출 경로 `신설`
+
+공인 IP가 없어도 ALB 뒤에 있으면 외부에 노출된다. 앞단을 안 보면 "미노출"로
+단정하게 되고 기밀성 룰이 통째로 틀어진다. 2패스가 ALB 타깃그룹과 CloudFront
+오리진을 훑어 뒤에 있는 자산에 경로를 붙인다.
+
+```
+prd-was-02          public_exposed=False  →  exposure_path=ALB
+corp-public-assets  public_exposed=None   →  exposure_path=CloudFront
+```
+
+**찾았을 때만 값이 붙는다.** 못 찾으면 `OUT_OF_SCOPE`로 두고 아직 안 보는 경로를
+hint에 적는다(Route 53 별칭·Global Accelerator·VPC 엔드포인트). `None`으로 단정하면
+"안 불러본 것을 없음이라 쓰지 않는다"는 이 프로젝트의 대원칙을 어긴다.
+
+무엇이 노출될 수 있는가는 **yaml 선언이 정한다.** 2패스는 선언이
+`NOT_APPLICABLE`이라고 말한 자산은 건드리지 않는다 — 서브넷의 `MapPublicIpOnLaunch`는
+네트워크 설정이지 엔드포인트가 아니다.
+
+#### `SSE-ECR` — ECR 리포지토리 전용 값 `신설`
+
+ECR의 `AES256`은 ECR이 관리하는 키다. S3가 아니므로 `SSE-S3`로 적으면 거짓이다.
+서비스 관리 키라는 점은 같지만 출처가 달라 갈라 적는다. 등급 룰은 "암호화 없음"만
+보므로 룰에는 영향이 없다.
 
 #### ⚠ `encryption_at_rest`에 `SSE-KMS-CMK`는 나오지 않는다
 
@@ -818,10 +845,17 @@ moto는 `describe_snapshots(OwnerIds=['self'])` 필터를 구현하지 않아
 3. **`collection_issues`가 비어 있지 않으면 "0건"을 신뢰하지 말 것.**
 4. **`encryption_at_rest == "SSE-KMS-CMK"`를 기대하지 말 것.** 나오지 않는다.
    **룰 C-06은 KMS 수집기가 생기기 전까지 사용 불가.**
-5. **`exposure_path`로 외부 노출을 판단하지 말 것.** 현재 항상 `OUT_OF_SCOPE`다.
-   `public_exposed`는 쓸 수 있지만 "ALB 뒤"는 잡지 못한다.
+5. **`exposure_path`가 `OUT_OF_SCOPE`인 것을 "외부 미노출"로 읽지 말 것.** `갱신`
+   값이 있으면(`Direct`/`ALB`/`CloudFront`/`APIGateway`) 그 경로로 노출된 것이 확정이다.
+   없으면 **우리가 보는 경로에서 안 나왔다**는 뜻이지 미노출이라는 뜻이 아니다.
 6. **`asset_count == 0`을 볼 때 `collector_exists`를 함께 볼 것.**
    "확인했더니 없다"와 "확인하지 않았다"는 다르다.
+7. **`parent_id`가 비어 있다고 고아 자산으로 읽지 말 것.** `신설`
+   `NOT_CONFIGURED`는 원본이 실제로 없는 것(미연결 볼륨·삭제된 원본),
+   `OUT_OF_SCOPE`는 남의 계정 소유라 수집 범위 밖인 것, `COLLECT_ERROR`는 조회 실패다.
+   등급 상속(결함사례 5)은 값이 있는 자산에만 적용할 수 있다.
+8. **`os`로 시트를 배정하지 말 것.** `신설` SSM 미도입이라 항상 `OUT_OF_SCOPE`다.
+   Linux/Windows 구분은 `platform`을 쓴다.
 
 ---
 
@@ -829,14 +863,24 @@ moto는 `describe_snapshots(OwnerIds=['self'])` 필터를 구현하지 않아
 
 | 과제 | 영향 |
 |---|---|
+| **태그 미입력 14,000여 건** | **가장 큰 병목.** 도구가 아니라 조직이 푸는 문제다. 규약은 `docs/tag-standard.md`에 있고, 태그를 달면 다음 실행부터 자동으로 채워진다 |
 | 수기 시트 역방향 병합 | 담당자가 채운 내용이 `assets.json`에 합쳐지지 않는다. 자산관리대장이 완성되려면 필요 |
-| ELB·CloudFront 수집기 | `exposure_path` 확정 불가 → 룰 C-03 정확도 제한 |
+| SSM 수집기 | `os`·`version`이 항상 `OUT_OF_SCOPE`. 안내서가 요구하는 항목이고 **소프트웨어 유형 0건의 원인**이다. moto가 SSM Inventory를 구현하지 않아 실계정에서만 검증 가능 |
 | KMS 수집기 | `SSE-KMS-CMK` 판별 불가 → 룰 C-06 사용 불가 |
-| SSM 수집기 | `os` 항상 `OUT_OF_SCOPE`. 안내서가 요구하는 항목이다 |
-| 정보시스템·소프트웨어·PC 수집기 | 세 유형이 `collector_exists: false` |
+| 노출 경로 나머지 | Route 53 별칭·Global Accelerator·VPC 엔드포인트는 아직 안 본다. `exposure_path`가 `OUT_OF_SCOPE`인 자산이 여기 해당한다 |
+| 설비·시설 | CSP 책임영역이라 **수기가 정답**이다. 수집기를 만들 대상이 아니다 |
+| `created_at` (네트워크장비) | VPC·서브넷·보안그룹·EIP는 describe 응답에 생성 시각이 없다. Config·CloudTrail 수집 필요 |
+| `backup_exists` | moto가 `list_protected_resources`를 구현하지 않아 데모에서 항상 `COLLECT_ERROR`. 코드 문제가 아니며 실계정에서만 검증된다 |
 | 멀티계정 | 코드는 계정 루프로 열어뒀으나 AssumeRole 미구현 |
 | CloudTrail 생성자 추론 | 관리주체 후보 제시(`created_by`) 미구현 |
 | `tags_raw` 마스킹 | 반출 시 마스킹 옵션이 없다 |
+
+### 해결된 과제 `갱신`
+
+| 과제 | 어떻게 해결됐나 |
+|---|---|
+| ELB·CloudFront 수집기 | `collector/services/frontend.py` 신설. `exposure_path`가 2패스 조인으로 확정된다 |
+| 정보시스템·PC 수집기 | 정보시스템은 frontend, PC는 WorkSpaces(`inventory.py`)가 담당. **0건 유형 5종 → 3종** |
 
 ---
 
@@ -917,7 +961,7 @@ RawAsset  →  NormalizedAsset (A)        →  GradedAsset (B)
 | `parent_id` / `relation_type` | 사본→원본 등급 상속(`결함사례 5`) |
 | `manual_required` / `manual_todo` | "담당자 부담 경감" — 도구의 두 번째 목적 |
 | `meta` 블록 전체 | 계약 버전·사유 코드·수집 실패 기록 |
-| 계약 필드 35종 | v0.1의 13개에서 확장 ([B-4](#b-4-자산-레코드--계약-필드-35종)) |
+| 계약 필드 39종 | v0.1의 13개에서 확장 ([B-4](#b-4-자산-레코드--계약-필드-39종)) |
 
 ---
 
@@ -931,7 +975,7 @@ RawAsset  →  NormalizedAsset (A)        →  GradedAsset (B)
 ```
 AWS-ISMS-P/
 ├── config/                    ← 사람이 고치는 설정 (코드 아님)
-│   ├── extract_map.yaml          원본 경로 → 계약 필드. 리소스 19종
+│   ├── extract_map.yaml          원본 경로 → 계약 필드. 리소스 25종
 │   ├── isms_asset_types.yaml     자산유형 11종 + 유형별 요구 항목
 │   └── manual_items.yaml         수집 불가 항목 + 담당자 작업 지시
 │
@@ -951,7 +995,9 @@ AWS-ISMS-P/
 │       ├── rds.py                   데이터(DBMS)
 │       ├── s3.py                    정보(전자적)
 │       ├── backup.py                백업 보호 여부
-│       └── security.py              WAF·GuardDuty·KMS·CloudTrail 등
+│       ├── security.py              WAF·GuardDuty·KMS·CloudTrail 등
+│       ├── frontend.py              ALB·API Gateway + CloudFront(전역)
+│       └── inventory.py             ECR 리포지토리 · WorkSpaces
 │
 ├── reporter/
 │   └── manual_sheet.py           수기 입력 템플릿 xlsx
@@ -961,8 +1007,9 @@ AWS-ISMS-P/
 │   └── normalized/{run_id}/assets.json
 │
 ├── output/                    ← .gitignore
+├── docs/tag-standard.md          조직이 지켜야 할 태그 규약 (담당자용)
 ├── demo.py  demo_env.py          전체 흐름 시연
-└── tests/                        81개
+└── tests/                        86개
 ```
 
 ### 변경 ① `advisor/`를 만들지 않음 — 합의된 변경
@@ -1023,21 +1070,22 @@ A가 맡는 것으로 착수 전에 확정했다.
 `reporter/iam_policy.py`도 만들지 않았다 — `registry.all_required_actions()`와 CLI 한 줄이라
 파일을 따로 둘 만큼이 아니었다.
 
-### 변경 ⑤ `services/` 12개 → 5개 — 범위 축소
+### 변경 ⑤ `services/` 12개 → 9개 — 범위 축소 `갱신`
 
 ```
 설계:  ec2 rds dynamodb s3 efs backup elbv2 cloudfront ssm ecr security workspaces
-현재:  ec2 rds s3 backup security
+현재:  ec2 rds s3 backup security frontend(elbv2+apigateway) cloudfront ecr workspaces
 ```
 
-**미구현 7개가 산출물에 그대로 드러난다.** 숨기지 않는다.
+파일은 7개다 — `frontend.py`가 elbv2·API Gateway를 묶고 CloudFront 수집기를 함께 담으며
+(전역 서비스라 클래스는 분리), `inventory.py`가 ECR·WorkSpaces를 담는다.
+설계에 없던 `apigateway`가 추가됐다.
+
+**미구현 3개가 산출물에 그대로 드러난다.** 숨기지 않는다.
 
 | 빠진 수집기 | 산출물에 나타나는 형태 |
 |---|---|
-| `elbv2` `cloudfront` | `infra_facts.exposure_path` → `OUT_OF_SCOPE` |
-| `ssm` | `os` → `OUT_OF_SCOPE`, 소프트웨어 유형 `collector_exists: false` |
-| `workspaces` | PC 유형 `collector_exists: false` |
-| `ecr` | 가상자원이 AMI·스냅샷만 |
+| `ssm` | `os`·`version` → `OUT_OF_SCOPE`, **소프트웨어 유형 `collector_exists: false`** |
 | `dynamodb` `efs` | 데이터·정보 유형 커버리지 축소 |
 | (KMS 상세) | `encryption_at_rest`가 `SSE-KMS`까지만 → **룰 C-06 사용 불가** |
 
@@ -1060,7 +1108,7 @@ A가 맡는 것으로 착수 전에 확정했다.
 | ③ | `snapshots/raw` · `normalized` 분리 | 착수 전 합의 |
 | ② | `config/` 5개 → 3개 | **구현 중 판단 — 재논의 가능** |
 | ④ | `main.py` → `python -m collector` | 구현 중 판단 (작업명세서 근거) |
-| ⑤ | `services/` 12개 → 5개 | 프로토타입 범위 축소 |
+| ⑤ | `services/` 12개 → 9개 | 프로토타입 범위 축소 (elbv2·cloudfront·ecr·workspaces·apigateway 추가) |
 
 ---
 
