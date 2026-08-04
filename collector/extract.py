@@ -464,18 +464,28 @@ def _resolve_parents(resources: dict, assets: list[dict], index: dict,
             continue
         found = index.get((parent["target"], asset["region"], ref))
         if found is None:
-            # 색인에 없다. 두 가지 사정이 완전히 다르므로 갈라야 한다.
-            #   목록 조회가 실패했으면 → 정말 모른다. 재수집 대상(COLLECT_ERROR)
-            #   목록은 다 읽었는데 없으면 → 원본이 삭제된 것. 재수집해도 안 나온다
-            # 스냅샷이 원본 볼륨보다 오래 사는 건 정상이라 후자가 대부분이다.
-            # 이걸 COLLECT_ERROR로 적으면 "재수집하라"는 틀린 지시가 나가고,
-            # 부재 아님(NOT_ABSENCE) 사유라 미확인 건수까지 부풀린다.
+            # 색인에 없다. 사정이 셋으로 갈리고 조치가 전부 다르다.
+            # 색인은 "우리가 수집한 것"이므로, 없다는 사실만으로 부재를 단정할 수 없다.
+            owner = asset.get("owner_account", {}).get("value")
             if (parent["target"], asset["region"]) in failed:
+                # 목록 조회가 실패했다. 정말 모른다 → 권한을 열고 재수집
                 asset["parent_id"] = R.missing(
                     R.COLLECT_ERROR,
                     hint=f"{parent['target']} 목록 조회에 실패해 원본 {ref}를 확인하지 못했습니다",
                 )
+            elif owner and owner != asset["account_id"]:
+                # 남의 계정 자원이다. 그 계정의 볼륨은 애초에 수집 대상이 아니라
+                # 색인에 있을 수 없다. "삭제됐다"고 쓰면 없는 사실을 지어내는 것이다.
+                asset["parent_id"] = R.missing(
+                    R.OUT_OF_SCOPE,
+                    detail=f"다른 계정({owner}) 소유 자산이라 원본 {parent['target']}을 "
+                           f"수집 범위에서 확인할 수 없습니다",
+                )
             else:
+                # 우리 계정이고 목록도 다 읽었는데 없다 → 원본이 삭제된 것.
+                # 스냅샷이 원본 볼륨보다 오래 사는 건 정상이라 이 경우가 있다.
+                # COLLECT_ERROR로 적으면 재수집해도 안 나올 것에 "재수집하라"는
+                # 틀린 지시가 나가고, 부재 아님 사유라 미확인 건수까지 부풀린다.
                 asset["parent_id"] = R.missing(
                     R.NOT_CONFIGURED,
                     hint=f"원본 {parent['target']} {ref}가 이미 삭제되었습니다",
