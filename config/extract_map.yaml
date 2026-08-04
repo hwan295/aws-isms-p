@@ -49,6 +49,10 @@ resources:
       lifecycle_state:   { path: "State.Name" }
       created_at:        { path: "LaunchTime" }
       os:                { out_of_scope: "ssm.describe_instance_information — SSM Agent 필요" }
+      # OS 계열(Linux/Windows). describe_instances 응답에 이미 있어 추가 호출이 없다.
+      # os(정확한 배포판·버전)와 다르다. 시트 배정은 이 값으로 충분하다.
+      # PlatformDetails는 실계정에서 항상 오고, moto는 아직 안 준다(→ API_NULL).
+      platform:          { path: "PlatformDetails || Platform" }
       usage:             { tag: "InventoryCategory" }
       environment:       { tag: "Environment" }
       owner_dept:        { tag: "OwnerDept" }
@@ -252,6 +256,15 @@ resources:
       lifecycle_state:   { path: "State" }
       created_at:        { path: "StartTime" }
       owner_dept:        { tag: "OwnerDept" }
+      # 스냅샷도 태그를 붙일 수 있는 자원이다. 선언하지 않으면 NOT_APPLICABLE
+      # ("이 자산유형에 개념이 없다")로 나가서 갭 집계에서 빠지고,
+      # 조직 정보가 비어 있다는 사실 자체가 리포트에서 사라진다.
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      usage:             { tag: "InventoryCategory" }
+      environment:       { tag: "Environment" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      service_name:      { tag: "ServiceName" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
       state:              { path: "State" }
@@ -273,6 +286,13 @@ resources:
       lifecycle_state:   { path: "State" }
       created_at:        { path: "CreationDate" }
       owner_dept:        { tag: "OwnerDept" }
+      # ec2_snapshot과 같은 이유. AMI도 태그 대상 자원이다.
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      usage:             { tag: "InventoryCategory" }
+      environment:       { tag: "Environment" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      service_name:      { tag: "ServiceName" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
       state:              { path: "State" }
@@ -338,6 +358,7 @@ resources:
       vpc_id:            { path: "VpcId" }
       lifecycle_state:   { path: "State" }
       owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
       state:             { path: "State" }
@@ -362,6 +383,7 @@ resources:
       ip_public:         { path: "PublicIp" }
       attached_to:       { path: "InstanceId" }
       owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
       public_exposed:    { const: true }
@@ -470,6 +492,7 @@ resources:
       lifecycle_state:   { path: "Status" }
       expires_at:        { path: "NotAfter" }
       owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
       state:             { path: "Status" }
@@ -508,6 +531,7 @@ resources:
       serial_no:         { path: "name" }
       usage:             { const: "구성 변경 이력" }
       owner_dept:        { tag: "OwnerDept" }
+      owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
       logging_enabled:   { const: true }
