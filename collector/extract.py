@@ -453,6 +453,7 @@ def _build_one(res_name: str, spec: dict, item: dict, meta: dict,
     asset["_index_key"] = jmespath.search(spec["index_key"], item)
     asset["_security_groups"] = jmespath.search(spec["security_groups"], item) if spec.get("security_groups") else None
     asset["_parent_ref"] = jmespath.search(spec["parent"]["via"], item) if spec.get("parent") else None
+    asset["_kms_ref"] = jmespath.search(spec["kms_key_ref"], item) if spec.get("kms_key_ref") else None
     asset["_backupable"] = bool(spec.get("backupable"))
     return asset
 
@@ -498,9 +499,11 @@ def resolve_relations(extract_map: dict, assets: list[dict], dumps: list[dict],
     _resolve_backup(assets, dumps)
     _resolve_snapshot_counts(assets)
     _resolve_exposure(assets, dumps)
+    _resolve_kms_manager(assets, dumps)
 
     for asset in assets:
-        for key in ("_index_key", "_security_groups", "_parent_ref", "_backupable"):
+        for key in ("_index_key", "_security_groups", "_parent_ref",
+                    "_backupable", "_kms_ref"):
             asset.pop(key, None)
 
 
@@ -798,6 +801,51 @@ def _cloudfront_origins(dumps: list[dict]) -> tuple[set[str], set[str]]:
                 else:
                     domains.add(domain)
     return buckets, domains
+
+
+def _resolve_kms_manager(assets: list[dict], dumps: list[dict]) -> None:
+    """SSE-KMS를 고객관리형(CMK)과 AWS 관리형으로 가른다.
+
+    kms.describe_key의 KeyManager가 답이고, security 수집기가 이미 그 응답을
+    담아 왔다. 추가 호출 없이 조인만 하면 된다.
+
+    **못 가르면 SSE-KMS 그대로 둔다.** "KMS로 암호화됐다"는 사실은 여전히
+    참이고, 확인 못 한 것을 AWS 관리형으로 단정하면 B의 룰 C-06이 잘못 발동한다.
+    """
+    managers = _key_managers(dumps)
+    if not managers:
+        return
+
+    for asset in assets:
+        fact = asset["infra_facts"]["encryption_at_rest"]
+        if fact.get("value") != "SSE-KMS":
+            continue
+        ref = asset.get("_kms_ref")
+        manager = managers.get(ref) if ref else None
+        if manager == "CUSTOMER":
+            asset["infra_facts"]["encryption_at_rest"] = R.value("SSE-KMS-CMK")
+        elif manager == "AWS":
+            asset["infra_facts"]["encryption_at_rest"] = R.value("SSE-KMS-AWS")
+
+
+def _key_managers(dumps: list[dict]) -> dict[str, str]:
+    """KMS 키 식별자 → KeyManager(CUSTOMER/AWS).
+
+    자원마다 키를 ARN으로도 KeyId로도 참조해서 둘 다 색인한다.
+    """
+    found: dict[str, str] = {}
+    for dump in dumps:
+        if dump["meta"]["service"] != "security":
+            continue
+        for key_id, detail in (dump["data"].get("keys") or {}).items():
+            meta = _dig_dict(detail, ("KeyMetadata",))
+            manager = meta.get("KeyManager")
+            if not manager:
+                continue
+            found[key_id] = manager
+            if meta.get("Arn"):
+                found[meta["Arn"]] = manager
+    return found
 
 
 def _rows(node: Any, key: str) -> list[dict]:

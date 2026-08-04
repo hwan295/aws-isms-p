@@ -94,6 +94,9 @@ resources:
       via: "Attachments[0].InstanceId"
       target: ec2_instance
       relation: attached_to
+    # 암호화 키 ARN이 실려 오는 위치. 2패스가 KeyManager를 조인해
+    # SSE-KMS를 고객관리형(CMK)/AWS관리형으로 가른다.
+    kms_key_ref: "KmsKeyId"
     fields:
       asset_name:        { tag: "Name" }
       serial_no:         { path: "VolumeId" }
@@ -132,6 +135,9 @@ resources:
     region_from: "get_bucket_location.LocationConstraint"
     tags: "get_bucket_tagging.TagSet"
     backupable: true
+    # 암호화 키 ARN이 실려 오는 위치. 2패스가 KeyManager를 조인해
+    # SSE-KMS를 고객관리형(CMK)/AWS관리형으로 가른다.
+    kms_key_ref: "get_bucket_encryption.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.KMSMasterKeyID"
     fields:
       asset_name:        { path: "Name" }
       serial_no:         { path: "Name" }
@@ -171,6 +177,9 @@ resources:
     tags: "TagList"
     security_groups: "VpcSecurityGroups[].VpcSecurityGroupId"
     backupable: true
+    # 암호화 키 ARN이 실려 오는 위치. 2패스가 KeyManager를 조인해
+    # SSE-KMS를 고객관리형(CMK)/AWS관리형으로 가른다.
+    kms_key_ref: "KmsKeyId"
     fields:
       asset_name:        { path: "DBInstanceIdentifier" }
       serial_no:         { path: "DbiResourceId" }
@@ -215,6 +224,9 @@ resources:
     index_key: "DBClusterIdentifier"
     tags: "TagList"
     backupable: true
+    # 암호화 키 ARN이 실려 오는 위치. 2패스가 KeyManager를 조인해
+    # SSE-KMS를 고객관리형(CMK)/AWS관리형으로 가른다.
+    kms_key_ref: "KmsKeyId"
     fields:
       asset_name:        { path: "DBClusterIdentifier" }
       engine:            { path: "Engine" }
@@ -256,6 +268,9 @@ resources:
       via: "VolumeId"
       target: ec2_volume
       relation: snapshot_of
+    # 암호화 키 ARN이 실려 오는 위치. 2패스가 KeyManager를 조인해
+    # SSE-KMS를 고객관리형(CMK)/AWS관리형으로 가른다.
+    kms_key_ref: "KmsKeyId"
     fields:
       asset_name:        { tag: "Name" }
       serial_no:         { path: "SnapshotId" }
@@ -457,6 +472,9 @@ resources:
     index_key: "repositoryName"
     tags: "tags.tags"
     backupable: false
+    # 암호화 키 ARN이 실려 오는 위치. 2패스가 KeyManager를 조인해
+    # SSE-KMS를 고객관리형(CMK)/AWS관리형으로 가른다.
+    kms_key_ref: "encryptionConfiguration.kmsKey"
     fields:
       asset_name:        { path: "repositoryName" }
       serial_no:         { path: "repositoryName" }
