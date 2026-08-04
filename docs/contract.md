@@ -60,13 +60,14 @@
 }
 ```
 
-- 위 **7개는 평범한 값**(항상 채워짐). 나머지는 전부 `{value, reason}` 쌍이다.
+- 위 **7개와 `tags_raw`는 평범한 값**(항상 채워짐). `infra_facts`는 6절의 중첩 객체다.
+  그 셋을 뺀 나머지는 전부 `{value, reason}` 쌍이다.
 - `reason`이 `null`이면 정상 수집. 아니면 `value`는 `null`이고 왜 없는지가 `reason`에 들어간다.
 - `hint`는 **담당자가 어떻게 하면 채워지는지.** 있을 때만 붙는다.
 - **모든 자산이 같은 키를 갖는다.** 그 자산유형에 없는 개념은 `NOT_APPLICABLE`로 채워진다.
   키 존재 여부를 확인할 필요가 없다.
 
-### 계약 필드 37종
+### 계약 필드 38종
 
 | 분류 | 필드 |
 |---|---|
@@ -76,11 +77,16 @@
 | 개인정보 | `has_personal_info` `personal_info_items` `data_source` |
 | 위치 | `region`* `az` `vpc_id` `subnet_id` `cidr` |
 | 접속 | `ip_private` `ip_public` `endpoint` `port` |
-| 상태 | `lifecycle_state` `created_at` `expires_at` `os` |
+| 상태 | `lifecycle_state` `created_at` `expires_at` `os` `platform` |
 | 관계 | `parent_id` `relation_type` `attached_to` `image_id` |
 | 기타 | `size_gb` `tenancy` `virtualization` `is_default` `owner_account` |
 
-\* `region`은 평범한 값이다.
+\* `region`은 평범한 값이다. 위 표에서 이것만 빼면 `{value, reason}` 필드가 38종이다.
+
+**`os`와 `platform`은 다르다.** `platform`은 OS 계열(`Linux/UNIX` / `Windows`)이고
+`describe_instances` 응답에 이미 있다. `os`는 정확한 배포판·버전이라 SSM이 필요해
+현재 항상 `OUT_OF_SCOPE`다. **시트 배정에는 `platform`을 쓸 것.**
+moto는 `PlatformDetails`를 주지 않아 데모에서는 `API_NULL`로 나온다(실계정에서는 값이 온다).
 
 ---
 
@@ -118,6 +124,16 @@
    → **룰 C-06 사용 불가** (KMS 수집기가 있어야 CMK 판별 가능)
 6. `exposure_path`로 **외부 노출을 판단하지 말 것.** 현재 항상 `OUT_OF_SCOPE`다
    (`public_exposed`는 쓸 수 있으나 "ALB 뒤"는 못 잡는다)
+7. `parent_id`가 비어 있다고 **고아 자산으로 읽지 말 것.** 사유마다 뜻이 다르다
+
+   | reason | 뜻 |
+   |---|---|
+   | `NOT_CONFIGURED` | 원본이 실제로 없다. 미연결 볼륨이거나 원본이 삭제된 스냅샷 |
+   | `OUT_OF_SCOPE` | 남의 계정 소유라 원본이 수집 범위 밖. **부재가 아니라 미확인** |
+   | `COLLECT_ERROR` | 원본 목록 조회가 실패했다. 재수집 대상 |
+
+   스냅샷이 원본 볼륨보다 오래 사는 것은 정상이므로 `NOT_CONFIGURED`는 결함이 아니다.
+   등급 상속(결함사례 5)은 `parent_id`에 값이 있는 자산에만 적용할 수 있다.
 
 ---
 
