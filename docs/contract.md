@@ -145,8 +145,10 @@
    `true`면 "확인했더니 없다"(결함 소지), `false`면 "확인하지 않았다"
 5. `encryption_at_rest == "SSE-KMS-CMK"`를 **기대하지 말 것.** 나오지 않는다
    → **룰 C-06 사용 불가** (KMS 수집기가 있어야 CMK 판별 가능)
-6. `exposure_path`로 **외부 노출을 판단하지 말 것.** 현재 항상 `OUT_OF_SCOPE`다
-   (`public_exposed`는 쓸 수 있으나 "ALB 뒤"는 못 잡는다)
+6. `exposure_path`가 `OUT_OF_SCOPE`인 것을 **"외부 미노출"로 읽지 말 것.**
+   값이 있으면(`Direct`/`ALB`/`CloudFront`/`APIGateway`) 그 경로로 노출된 것이 확정이다.
+   없으면 **우리가 보는 경로에서 안 나왔다는 뜻**이고 미노출이라는 뜻이 아니다
+   (Route 53 별칭·Global Accelerator·VPC 엔드포인트는 아직 수집하지 않는다).
 7. `parent_id`가 비어 있다고 **고아 자산으로 읽지 말 것.** 사유마다 뜻이 다르다
 
    | reason | 뜻 |
@@ -171,7 +173,7 @@
 | `pitr_enabled` `multi_az` `deletion_protection` | bool | RDS |
 | `in_asg` | bool | |
 | `public_exposed` | bool | |
-| `exposure_path` | enum | **현재 항상 `OUT_OF_SCOPE`** |
+| `exposure_path` | enum | `Direct`/`ALB`/`CloudFront`/`APIGateway`. **찾았을 때만 값이 붙는다** |
 | `encryption_at_rest` | enum | `None` / `SSE-S3` / **`SSE-KMS`** (아래 참고) |
 | `encryption_in_transit` | bool | **현재 항상 `OUT_OF_SCOPE`** |
 | `open_sg_rule` `open_sg_detail` | bool / list | `["sg-0abc:22/tcp"]` — 포트까지 |
