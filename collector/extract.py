@@ -104,6 +104,18 @@ def _t_sse_algorithm(v: Any) -> Any:
     return {"AES256": "SSE-S3", "aws:kms": "SSE-KMS"}.get(v, v)
 
 
+def _t_ecr_encryption(v: Any) -> Any:
+    """ECR encryptionType → encryption_at_rest.
+
+    ECR의 AES256은 ECR이 관리하는 키다. S3가 아니므로 SSE-S3로 적으면 거짓이다.
+    등급 룰은 "암호화 없음"만 보므로 라벨이 룰을 바꾸지는 않지만,
+    대장의 증적 칸에 그대로 출력되기 때문에 정확해야 한다.
+    """
+    if v is None:
+        return None
+    return {"AES256": "SSE-ECR", "KMS": "SSE-KMS"}.get(str(v).strip(), str(v))
+
+
 def _t_internet_facing(v: Any) -> Any:
     """ALB Scheme → 외부 노출 여부. 설정 자체가 답이라 추론이 아니다."""
     if v is None:
@@ -148,6 +160,7 @@ TRANSFORMS = {
     "positive": _t_positive,
     "enc_bool": _t_enc_bool,
     "sse_algorithm": _t_sse_algorithm,
+    "ecr_encryption": _t_ecr_encryption,
     "internet_facing": _t_internet_facing,
     "tls_protocol": _t_tls_protocol,
     "viewer_https": _t_viewer_https,

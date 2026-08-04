@@ -143,7 +143,8 @@ asset_types:
       - { name: "인증범위 포함", field: in_scope }
       - { name: "보안등급",     field: null, manual_ref: security_grade }
     not_applicable: [endpoint, encryption_at_rest]
-    aws_collectable: []
+    # WorkSpaces(가상 데스크톱)만 채운다. 온프레미스 단말은 영원히 수기다.
+    aws_collectable: [workspaces_workspace]
 
   정보:
     description: >
@@ -182,8 +183,8 @@ asset_types:
       - { name: "인증범위 포함", field: in_scope }
       - { name: "이미지 승인 여부", field: null, manual_ref: image_approval }
       - { name: "보안등급",     field: null, manual_ref: security_grade }
-    not_applicable: [ip_private, endpoint, os]
-    aws_collectable: [ec2_snapshot, ec2_image]
+    not_applicable: [ip_private, os]
+    aws_collectable: [ec2_snapshot, ec2_image, ecr_repository]
 
   설비:
     description: >

@@ -445,6 +445,71 @@ resources:
       exposure_path: "이 자산 자체가 노출 경로다"
       logging_enabled: "apigatewayv2.get_stages의 로깅 설정 수집 필요"
 
+  # ------------------------------------------------------- 가상자원 — 컨테이너
+  ecr_repository:
+    service: ecr
+    # 자산 단위는 리포지토리다. 이미지를 낱개로 등재하면 EBS 스냅샷 2339건과
+    # 같은 문제가 나고, 조직 태그가 붙는 단위도 리포지토리다.
+    iterate: { map: "repositories", key_as: "repositoryName" }
+    merge: { from: "describe_repositories.repositories", match_key: "repositoryName" }
+    asset_type: "가상자원"
+    asset_id: "{repositoryArn}"
+    index_key: "repositoryName"
+    tags: "tags.tags"
+    backupable: false
+    fields:
+      asset_name:        { path: "repositoryName" }
+      serial_no:         { path: "repositoryName" }
+      endpoint:          { path: "repositoryUri" }
+      created_at:        { path: "createdAt" }
+      usage:             { tag: "InventoryCategory" }
+      environment:       { tag: "Environment" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      data_classification: { tag: "DataClass" }
+      service_name:      { tag: "ServiceName" }
+      in_scope:          { tag: "InScope", transform: bool }
+    infra_facts:
+      # ECR의 AES256은 ECR 관리 키다. S3가 아니므로 SSE-S3로 적으면 거짓이다.
+      encryption_at_rest: { path: "encryptionConfiguration.encryptionType", transform: ecr_encryption }
+    infra_facts_out_of_scope:
+      public_exposed: "ecr.get_repository_policy 수집 필요 — 리포지토리 정책이 공개일 수 있다"
+      logging_enabled: "cloudtrail 데이터 이벤트 수집 필요"
+
+  # -------------------------------------------------------------------- PC
+  workspaces_workspace:
+    service: workspaces
+    iterate: { map: "workspaces", key_as: "WorkspaceId" }
+    merge: { from: "describe_workspaces.Workspaces", match_key: "WorkspaceId" }
+    asset_type: "PC"
+    asset_id: "arn:aws:workspaces:{region}:{account}:workspace/{WorkspaceId}"
+    index_key: "WorkspaceId"
+    tags: "tags.TagList"
+    backupable: false
+    fields:
+      asset_name:        { tag: "Name" }
+      serial_no:         { path: "WorkspaceId" }
+      model:             { path: "BundleId" }
+      ip_private:        { path: "IpAddress" }
+      lifecycle_state:   { path: "State" }
+      usage:             { tag: "InventoryCategory" }
+      environment:       { tag: "Environment" }
+      owner_dept:        { tag: "OwnerDept" }
+      owner_manager:     { tag: "OwnerManager" }
+      owner_responsible: { tag: "OwnerResponsible" }
+      has_personal_info: { tag: "HandlePI", transform: bool }
+      service_name:      { tag: "ServiceName" }
+      in_scope:          { tag: "InScope", transform: bool }
+      # 실계정 응답에는 있으나 moto가 주지 않는다 → API_NULL
+      os:                { path: "WorkspaceProperties.OperatingSystemName" }
+    infra_facts:
+      state:              { path: "State" }
+      encryption_at_rest: { path: "UserVolumeEncryptionEnabled", transform: enc_bool }
+    infra_facts_out_of_scope:
+      exposure_path: "WorkSpaces는 클라이언트로만 접속한다 — 노출 경로 판정에 별도 수집 필요"
+
   # ----------------------------------------------------------- 네트워크장비
   ec2_security_group:
     service: ec2
