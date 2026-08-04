@@ -72,9 +72,9 @@ asset_types:
       - { name: "업무 기능",     field: null, manual_ref: app_business_function }
       - { name: "보안등급",      field: null, manual_ref: security_grade }
     not_applicable: [ip_private]
-    # 아직 수집기가 없다. 0건은 "자산이 없다"가 아니라 "안 봤다"이므로
-    # collection_gap으로 리포트된다.
-    aws_collectable: []
+    aws_collectable:
+      [elbv2_load_balancer, cloudfront_distribution,
+       apigateway_rest_api, apigatewayv2_api]
 
   소프트웨어:
     description: "안내서 '소프트웨어'. SSM Inventory·ECR 이미지 패키지·License Manager."

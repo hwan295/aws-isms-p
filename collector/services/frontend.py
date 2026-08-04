@@ -51,16 +51,17 @@ class FrontendCollector(ServiceCollector):
         )
         lb_arns = _values(data["describe_load_balancers"], "LoadBalancers", "LoadBalancerArn")
 
-        # ELB 태그는 응답에 없고 별도 호출이다(S3와 같은 사정).
-        # extract가 arn으로 찾아 쓰도록 arn별 dict로 담는다.
-        data["tags"] = {
-            arn: safe_call(lambda a=arn: elb.describe_tags(ResourceArns=[a]))
-            for arn in lb_arns
-        }
-
-        # 리스너 — 프로토콜(HTTP/HTTPS)이 전송구간 암호화의 근거다.
-        data["listeners"] = {
-            arn: paginate(elb, "describe_listeners", "Listeners", LoadBalancerArn=arn)
+        # 자산 하나당 여러 API 응답을 묶어 담는다(S3의 buckets와 같은 모양).
+        # extract는 이 dict를 순회하고 describe_load_balancers를 merge로 합친다.
+        # 태그가 응답에 없고 별도 호출인 것도 S3와 같은 사정이다.
+        data["load_balancers"] = {
+            arn: {
+                "tags": safe_call(lambda a=arn: elb.describe_tags(ResourceArns=[a])),
+                # 리스너 프로토콜(HTTP/HTTPS)이 전송구간 암호화의 근거다.
+                "listeners": paginate(
+                    elb, "describe_listeners", "Listeners", LoadBalancerArn=arn
+                ),
+            }
             for arn in lb_arns
         }
 
@@ -101,16 +102,17 @@ class CloudFrontCollector(ServiceCollector):
             client, "list_distributions", "DistributionList.Items"
         )
 
-        ids, arns = _distribution_refs(data["list_distributions"])
-
-        # 목록 응답에 Origins가 없다. 오리진을 알아야 "이 S3 버킷이 CloudFront 뒤에 있다"를
-        # 판정할 수 있으므로 배포마다 상세를 부른다.
+        # 배포 하나당 상세와 태그를 묶어 담는다. 키는 Id로 통일한다 —
+        # 태그 호출은 ARN을 받지만 목록과 맞추려면 같은 키여야 한다.
+        # 목록 응답에 Origins가 없어서(실측) 배포마다 상세를 부른다.
         data["distributions"] = {
-            did: safe_call(lambda d=did: client.get_distribution(Id=d)) for did in ids
-        }
-        data["tags"] = {
-            arn: safe_call(lambda a=arn: client.list_tags_for_resource(Resource=a))
-            for arn in arns
+            did: {
+                "detail": safe_call(lambda d=did: client.get_distribution(Id=d)),
+                "tags": safe_call(
+                    lambda a=arn: client.list_tags_for_resource(Resource=a)
+                ),
+            }
+            for did, arn in _distribution_refs(data["list_distributions"])
         }
         return data
 
@@ -123,9 +125,12 @@ def _values(response: Any, key: str, field: str) -> list[str]:
     return [r[field] for r in rows if isinstance(r, dict) and field in r]
 
 
-def _distribution_refs(response: Any) -> tuple[list[str], list[str]]:
-    """배포마다 상세·태그를 부르기 위한 Id와 ARN."""
-    return (
-        _values(response, "Items", "Id"),
-        _values(response, "Items", "ARN"),
-    )
+def _distribution_refs(response: Any) -> list[tuple[str, str]]:
+    """배포마다 (Id, ARN) 쌍. 상세는 Id로, 태그는 ARN으로 불러야 한다."""
+    if is_status(response) or not isinstance(response, dict):
+        return []
+    return [
+        (i["Id"], i["ARN"])
+        for i in (response.get("Items") or [])
+        if isinstance(i, dict) and "Id" in i and "ARN" in i
+    ]

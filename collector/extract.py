@@ -103,6 +103,42 @@ def _t_sse_algorithm(v: Any) -> Any:
     return {"AES256": "SSE-S3", "aws:kms": "SSE-KMS"}.get(v, v)
 
 
+def _t_internet_facing(v: Any) -> Any:
+    """ALB Scheme → 외부 노출 여부. 설정 자체가 답이라 추론이 아니다."""
+    if v is None:
+        return None
+    return str(v).strip().lower() == "internet-facing"
+
+
+def _t_tls_protocol(v: Any) -> Any:
+    """리스너 프로토콜 목록 → 전송구간 암호화 여부.
+
+    하나라도 HTTPS/TLS면 True. 목록이 비면 리스너가 없는 것이므로
+    "암호화 안 함"이 아니라 판단 불가(None)다.
+    """
+    if not v:
+        return None
+    protocols = v if isinstance(v, list) else [v]
+    return any(str(p).strip().upper() in ("HTTPS", "TLS") for p in protocols)
+
+
+def _t_viewer_https(v: Any) -> Any:
+    """CloudFront ViewerProtocolPolicy → 전송구간 암호화 여부.
+
+    allow-all은 평문 HTTP를 허용한다는 뜻이라 False다.
+    """
+    if v is None:
+        return None
+    return str(v).strip().lower() in ("https-only", "redirect-to-https")
+
+
+def _t_api_public(v: Any) -> Any:
+    """API Gateway 엔드포인트 유형 → 외부 노출 여부. PRIVATE만 VPC 안이다."""
+    if v is None:
+        return None
+    return str(v).strip().upper() != "PRIVATE"
+
+
 TRANSFORMS = {
     "present": _t_present,
     "bool": _t_bool,
@@ -111,6 +147,10 @@ TRANSFORMS = {
     "positive": _t_positive,
     "enc_bool": _t_enc_bool,
     "sse_algorithm": _t_sse_algorithm,
+    "internet_facing": _t_internet_facing,
+    "tls_protocol": _t_tls_protocol,
+    "viewer_https": _t_viewer_https,
+    "api_public": _t_api_public,
     "str": lambda v: None if v is None else str(v),
 }
 
