@@ -106,7 +106,12 @@ def paginate(client: Any, operation: str, result_key: str, **kwargs: Any) -> Any
 
     페이지네이터가 없는 API(describe_addresses, describe_regions)는 직접 호출한다.
     있는지 없는지는 can_paginate()에게 묻는다. 수집기가 외우지 않는다.
+
+    result_key는 점으로 중첩을 쓸 수 있다(cloudfront는 목록이
+    DistributionList.Items에 있다). 저장은 마지막 조각 이름으로 한다.
+    키에 점이 있으면 extract_map의 JMESPath 경로에서 따옴표를 써야 해서다.
     """
+    store_key = result_key.split(".")[-1]
 
     def _run() -> dict[str, Any]:
         if not client.can_paginate(operation):
@@ -117,10 +122,20 @@ def paginate(client: Any, operation: str, result_key: str, **kwargs: Any) -> Any
         pages = 0
         for page in paginator.paginate(**kwargs):
             pages += 1
-            merged.extend(page.get(result_key, []))
-        return {result_key: merged, "__pages__": pages}
+            merged.extend(_dig(page, result_key))
+        return {store_key: merged, "__pages__": pages}
 
     return safe_call(_run)
+
+
+def _dig(page: Any, path: str) -> list[Any]:
+    """점으로 중첩된 경로를 따라가 목록을 꺼낸다. 없으면 빈 목록."""
+    node: Any = page
+    for part in path.split("."):
+        if not isinstance(node, dict):
+            return []
+        node = node.get(part)
+    return node if isinstance(node, list) else []
 
 
 def iter_service_regions(

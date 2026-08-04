@@ -54,9 +54,11 @@ def test_최소권한_정책에_쓰기_액션이_없다():
     actions = all_required_actions()
     assert actions
     # Batch는 inspector2:BatchGetAccountStatus 같은 조회 API의 접두사다.
+    # API Gateway만 IAM 액션에 HTTP 동사를 쓴다(apigateway:GET/POST/PUT/DELETE).
+    # 대문자 GET은 읽기이고, 쓰기인 POST·PUT·DELETE는 여기서 그대로 걸린다.
     for action in actions:
         verb = action.split(":", 1)[1]
-        assert verb.startswith(("Describe", "List", "Get", "Batch")), action
+        assert verb.startswith(("Describe", "List", "Get", "Batch", "GET")), action
 
 
 def test_모든_수집기가_계약을_지킨다():
