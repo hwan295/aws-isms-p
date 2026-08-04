@@ -83,10 +83,22 @@
 
 \* `region`은 평범한 값이다. 위 표에서 이것만 빼면 `{value, reason}` 필드가 38종이다.
 
-**`os`와 `platform`은 다르다.** `platform`은 OS 계열(`Linux/UNIX` / `Windows`)이고
-`describe_instances` 응답에 이미 있다. `os`는 정확한 배포판·버전이라 SSM이 필요해
-현재 항상 `OUT_OF_SCOPE`다. **시트 배정에는 `platform`을 쓸 것.**
-moto는 `PlatformDetails`를 주지 않아 데모에서는 `API_NULL`로 나온다(실계정에서는 값이 온다).
+### `platform` — 신규 필드 (B 조치 필요)
+
+`os`와 다르다. `platform`은 **OS 계열**(`Linux/UNIX` / `Windows`)이고
+`describe_instances` 응답에 이미 있어 추가 호출 없이 뽑는다.
+`os`는 정확한 배포판·버전이라 SSM이 필요해 **현재 항상 `OUT_OF_SCOPE`**다.
+
+```
+원본 경로: ec2/describe_instances → PlatformDetails || Platform
+용도:      OS (Linux) / OS (Windows) 시트 배정
+```
+
+**시트 배정에는 `os`가 아니라 `platform`을 쓸 것.** 현재 `os_family()`가 `os`만 보는데
+`os`는 값이 나오는 일이 없어서 서버가 전부 "OS 미확인" 시트로 간다.
+
+단, moto는 `PlatformDetails`를 주지 않아 **데모에서는 `API_NULL`**이다.
+실계정에서만 값이 오므로, 고쳐도 데모 화면은 그대로다.
 
 ---
 
