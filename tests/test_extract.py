@@ -297,8 +297,9 @@ def test_자산유형_11종_키가_전부_있고_0건도_키가_있다(raw_run):
     assert set(types) == expected
 
     # 0건이라는 사실 자체가 결함사례 1·4의 리포트 대상이다.
-    # 수집기가 생긴 유형은 여기서 빠진다 — 정보시스템은 frontend 수집기가 담당한다.
-    for name in ("소프트웨어", "PC"):
+    # 수집기가 생긴 유형은 여기서 빠진다(정보시스템=frontend, PC=WorkSpaces).
+    # 소프트웨어는 ssm.list_inventory_entries가 필요한데 moto가 구현하지 않는다.
+    for name in ("소프트웨어",):
         assert types[name]["assets"] == []
         assert types[name]["asset_count"] == 0
         assert types[name]["collector_exists"] is False
@@ -306,7 +307,8 @@ def test_자산유형_11종_키가_전부_있고_0건도_키가_있다(raw_run):
     assert "수기" in types["설비"]["note"]
 
     # 수집기가 있는 유형은 0건이어도 "확인했다"로 나가야 한다.
-    assert types["정보시스템(응용프로그램)"]["collector_exists"] is True
+    for name in ("정보시스템(응용프로그램)", "PC"):
+        assert types[name]["collector_exists"] is True
 
 
 def test_모든_자산이_infra_facts_17키를_갖는다(raw_run):

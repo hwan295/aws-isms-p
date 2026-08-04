@@ -174,7 +174,7 @@
 | `in_asg` | bool | |
 | `public_exposed` | bool | |
 | `exposure_path` | enum | `Direct`/`ALB`/`CloudFront`/`APIGateway`. **찾았을 때만 값이 붙는다** |
-| `encryption_at_rest` | enum | `None` / `SSE-S3` / **`SSE-KMS`** (아래 참고) |
+| `encryption_at_rest` | enum | `None` / `SSE-S3` / `SSE-ECR` / **`SSE-KMS`** (아래 참고) |
 | `encryption_in_transit` | bool | **현재 항상 `OUT_OF_SCOPE`** |
 | `open_sg_rule` `open_sg_detail` | bool / list | `["sg-0abc:22/tcp"]` — 포트까지 |
 | `versioning_enabled` `object_lock` `logging_enabled` | bool | S3 |
@@ -182,6 +182,10 @@
 
 > **`encryption_at_rest`에 `SSE-KMS-CMK`는 없다.** 고객관리형 키인지 AWS 관리형인지는
 > `kms:DescribeKey`를 봐야 하는데 아직 안 부른다. `SSE-KMS`까지만 적는다.
+>
+> **`SSE-ECR`은 ECR 리포지토리 전용이다.** ECR의 `AES256`은 ECR이 관리하는 키이고
+> S3가 아니다. 서비스 관리 키라는 점은 `SSE-S3`와 같지만 출처가 다르므로 갈라 적는다.
+> 등급 룰은 "암호화 없음"만 보므로 룰에는 영향이 없다.
 
 **사실 수집일 뿐 판정이 아니다.** `encryption_at_rest: "None"`은 사실,
 "기밀성 2점"은 판정이다. 판정은 B의 몫이다.

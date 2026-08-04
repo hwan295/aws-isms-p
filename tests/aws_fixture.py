@@ -159,6 +159,16 @@ def build_environment(region: str = REGION, suffix: str = "") -> dict:
     created["load_balancer"] = alb["LoadBalancerArn"]
     created["instances"]["alb_backend"] = backend
 
+    # 컨테이너 리포지토리 — 태그 완비 / 태그 전무
+    ecr = boto3.client("ecr", region_name=region)
+    ecr.create_repository(
+        repositoryName=f"portal/api{suffix}",
+        encryptionConfiguration={"encryptionType": "KMS"},
+        tags=[{"Key": "Name", "Value": "portal-api"},
+              {"Key": "OwnerDept", "Value": "개발팀"}])
+    ecr.create_repository(repositoryName=f"legacy/batch{suffix}")
+    created["repositories"] = [f"portal/api{suffix}", f"legacy/batch{suffix}"]
+
     return created
 
 

@@ -213,6 +213,36 @@ def build(region: str = REGION) -> dict:
     })
     made["distributions"] = ["포털 정적 자산 CDN"]
 
+    # 컨테이너 이미지 — 태그 완비 1 / 태그 전무 1
+    ecr = boto3.client("ecr", region_name=region)
+    ecr.create_repository(
+        repositoryName="portal/api",
+        encryptionConfiguration={"encryptionType": "KMS"},
+        tags=_tags(Name="portal-api", **{**COMPLETE, "InventoryCategory": "WAS"}))
+    ecr.create_repository(repositoryName="legacy/batch")
+    made["repositories"] = ["portal/api", "legacy/batch"]
+
+    # 가상 데스크톱 — 온프레 단말은 영원히 수기이므로 PC 유형의 일부만 채워진다
+    subnets_ws = [
+        ec2.create_subnet(VpcId=vpc_id, CidrBlock=f"172.31.{n}.0/24",
+                          AvailabilityZone=f"{region}{az}")["Subnet"]["SubnetId"]
+        for n, az in ((210, "a"), (211, "b"))
+    ]
+    directory = boto3.client("ds", region_name=region).create_directory(
+        Name="corp.local", Password="DemoPw123!", Size="Small",
+        VpcSettings={"VpcId": vpc_id, "SubnetIds": subnets_ws})["DirectoryId"]
+    ws = boto3.client("workspaces", region_name=region)
+    ws.register_workspace_directory(DirectoryId=directory, SubnetIds=subnets_ws)
+    ws.create_workspaces(Workspaces=[
+        {"DirectoryId": directory, "UserName": "kim", "BundleId": "wsb-demo01",
+         "Tags": _tags(Name="vdi-kim", OwnerDept="IT운영팀", OwnerManager="김실무",
+                       OwnerResponsible="박책임", InScope="Y",
+                       InventoryCategory="VDI", Environment="Prod")},
+        # 태그 없는 VDI — 누구 것인지 모르는 단말
+        {"DirectoryId": directory, "UserName": "unknown", "BundleId": "wsb-demo01"},
+    ])
+    made["workspaces"] = ["vdi-kim", "unknown"]
+
     # 보안시스템은 만들지 않는다. 결함사례 1 재현이 목적이다.
     return made
 
@@ -246,6 +276,8 @@ def describe() -> list[str]:
         "로드밸런서 2개 — 외부 ALB(HTTPS·태그 완비) 1 / 내부 NLB(태그 전무) 1",
         "API GW 2개     — REST(태그 완비) 1 / HTTP(태그 전무) 1",
         "CloudFront 1개 — 퍼블릭 버킷을 오리진으로. 노출 경로 조인 대상",
+        "ECR 2개       — 암호화·태그 완비 1 / 태그 전무 1 (가상자원)",
+        "WorkSpaces 2대 — 태그 완비 1 / 태그 전무 1 (PC. 온프레 단말은 수기)",
         "다른 리전      — 아무도 안 보는 리전에 EC2 1대·버킷 1개 (결함사례 4)",
         "보안시스템     — 일부러 아무것도 만들지 않음 (결함사례 1 재현)",
     ]
