@@ -49,6 +49,8 @@ resources:
       lifecycle_state:   { path: "State.Name" }
       created_at:        { path: "LaunchTime" }
       os:                { out_of_scope: "ssm.describe_instance_information — SSM Agent 필요" }
+      # OS 버전. os와 같은 사정이다. describe_instances는 배포판·커널 버전을 주지 않는다.
+      version:           { out_of_scope: "ssm.describe_instance_information — SSM Agent 필요" }
       # OS 계열(Linux/Windows). describe_instances 응답에 이미 있어 추가 호출이 없다.
       # os(정확한 배포판·버전)와 다르다. 시트 배정은 이 값으로 충분하다.
       # PlatformDetails는 실계정에서 항상 오고, moto는 아직 안 준다(→ API_NULL).
@@ -102,6 +104,7 @@ resources:
       attached_to:       { path: "Attachments[0].InstanceId" }
       usage:             { tag: "InventoryCategory" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
@@ -133,6 +136,7 @@ resources:
       created_at:        { path: "CreationDate" }
       usage:             { tag: "InventoryCategory" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
@@ -179,6 +183,7 @@ resources:
       usage:             { tag: "InventoryCategory" }
       environment:       { tag: "Environment" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
@@ -214,6 +219,7 @@ resources:
       lifecycle_state:   { path: "Status" }
       created_at:        { path: "ClusterCreateTime" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_manager:     { tag: "OwnerManager" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
@@ -315,6 +321,10 @@ resources:
       usage:             { path: "Description" }
       vpc_id:            { path: "VpcId" }
       owner_dept:        { tag: "OwnerDept" }
+      # describe API 응답에 생성 시각이 없다(원본 덤프로 확인).
+      # 개념이 없는 게 아니라 이 도구가 아직 그 출처를 안 부르는 것이다.
+      created_at:        { out_of_scope: "config:GetResourceConfigHistory 또는 cloudtrail 수집 필요" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts: {}
@@ -335,6 +345,10 @@ resources:
       is_default:        { path: "IsDefault" }
       lifecycle_state:   { path: "State" }
       owner_dept:        { tag: "OwnerDept" }
+      # describe API 응답에 생성 시각이 없다(원본 덤프로 확인).
+      # 개념이 없는 게 아니라 이 도구가 아직 그 출처를 안 부르는 것이다.
+      created_at:        { out_of_scope: "config:GetResourceConfigHistory 또는 cloudtrail 수집 필요" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -358,6 +372,10 @@ resources:
       vpc_id:            { path: "VpcId" }
       lifecycle_state:   { path: "State" }
       owner_dept:        { tag: "OwnerDept" }
+      # describe API 응답에 생성 시각이 없다(원본 덤프로 확인).
+      # 개념이 없는 게 아니라 이 도구가 아직 그 출처를 안 부르는 것이다.
+      created_at:        { out_of_scope: "config:GetResourceConfigHistory 또는 cloudtrail 수집 필요" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -383,6 +401,10 @@ resources:
       ip_public:         { path: "PublicIp" }
       attached_to:       { path: "InstanceId" }
       owner_dept:        { tag: "OwnerDept" }
+      # describe API 응답에 생성 시각이 없다(원본 덤프로 확인).
+      # 개념이 없는 게 아니라 이 도구가 아직 그 출처를 안 부르는 것이다.
+      created_at:        { out_of_scope: "config:GetResourceConfigHistory 또는 cloudtrail 수집 필요" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -406,6 +428,7 @@ resources:
       serial_no:         { path: "Id" }
       usage:             { const: "침입차단시스템(웹)" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -429,6 +452,7 @@ resources:
       lifecycle_state:   { path: "Status" }
       created_at:        { path: "CreatedAt" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -448,6 +472,7 @@ resources:
       serial_no:         { path: "FirewallName" }
       usage:             { const: "침입방지시스템" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts: {}
@@ -471,6 +496,7 @@ resources:
       lifecycle_state:   { path: "KeyMetadata.KeyState" }
       created_at:        { path: "KeyMetadata.CreationDate" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -492,6 +518,7 @@ resources:
       lifecycle_state:   { path: "Status" }
       expires_at:        { path: "NotAfter" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -511,6 +538,7 @@ resources:
       serial_no:         { path: "Name" }
       usage:             { const: "감사로그" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -531,6 +559,7 @@ resources:
       serial_no:         { path: "name" }
       usage:             { const: "구성 변경 이력" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       in_scope:          { tag: "InScope", transform: bool }
     infra_facts:
@@ -551,6 +580,7 @@ resources:
       usage:             { const: "비밀정보" }
       created_at:        { path: "CreatedDate" }
       owner_dept:        { tag: "OwnerDept" }
+      service_name:      { tag: "ServiceName" }
       owner_responsible: { tag: "OwnerResponsible" }
       has_personal_info: { tag: "HandlePI", transform: bool }
       in_scope:          { tag: "InScope", transform: bool }
