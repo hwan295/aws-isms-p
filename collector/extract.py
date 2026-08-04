@@ -421,10 +421,14 @@ def _build_infra_facts(spec: dict, item: dict, tags: dict, tag_status: dict | No
 # 2패스 — 조인
 # --------------------------------------------------------------------------
 
-def resolve_relations(extract_map: dict, assets: list[dict], dumps: list[dict]) -> None:
+def resolve_relations(extract_map: dict, assets: list[dict], dumps: list[dict],
+                      issues: list[dict] | None = None) -> None:
     """색인을 만들고 parent_id·open_sg_rule·backup_exists를 채운다.
 
     조인은 사실이지 판정이 아니다. 등급을 매기는 건 여전히 B다.
+
+    issues는 1패스가 기록한 수집 실패 목록이다. 조인이 실패했을 때
+    "못 읽었다"와 "원본이 없다"를 가르는 데 쓴다.
     """
     resources = extract_map["resources"]
 
@@ -432,7 +436,10 @@ def resolve_relations(extract_map: dict, assets: list[dict], dumps: list[dict]) 
     for asset in assets:
         index[(asset["resource_type"], asset["region"], asset["_index_key"])] = asset
 
-    _resolve_parents(resources, assets, index)
+    # 목록 조회에 실패한 (리소스, 리전). 이 조합은 색인이 불완전하다.
+    failed = {(i["resource_type"], i["region"]) for i in (issues or [])}
+
+    _resolve_parents(resources, assets, index, failed)
     _resolve_security_groups(assets, dumps)
     _resolve_backup(assets, dumps)
     _resolve_snapshot_counts(assets)
@@ -442,7 +449,8 @@ def resolve_relations(extract_map: dict, assets: list[dict], dumps: list[dict]) 
             asset.pop(key, None)
 
 
-def _resolve_parents(resources: dict, assets: list[dict], index: dict) -> None:
+def _resolve_parents(resources: dict, assets: list[dict], index: dict,
+                     failed: set[tuple[str, str]]) -> None:
     for asset in assets:
         spec = resources[asset["resource_type"]]
         parent = spec.get("parent")
@@ -456,10 +464,22 @@ def _resolve_parents(resources: dict, assets: list[dict], index: dict) -> None:
             continue
         found = index.get((parent["target"], asset["region"], ref))
         if found is None:
-            asset["parent_id"] = R.missing(
-                R.COLLECT_ERROR,
-                hint=f"참조하는 {parent['target']} {ref}를 수집 결과에서 찾지 못했습니다",
-            )
+            # 색인에 없다. 두 가지 사정이 완전히 다르므로 갈라야 한다.
+            #   목록 조회가 실패했으면 → 정말 모른다. 재수집 대상(COLLECT_ERROR)
+            #   목록은 다 읽었는데 없으면 → 원본이 삭제된 것. 재수집해도 안 나온다
+            # 스냅샷이 원본 볼륨보다 오래 사는 건 정상이라 후자가 대부분이다.
+            # 이걸 COLLECT_ERROR로 적으면 "재수집하라"는 틀린 지시가 나가고,
+            # 부재 아님(NOT_ABSENCE) 사유라 미확인 건수까지 부풀린다.
+            if (parent["target"], asset["region"]) in failed:
+                asset["parent_id"] = R.missing(
+                    R.COLLECT_ERROR,
+                    hint=f"{parent['target']} 목록 조회에 실패해 원본 {ref}를 확인하지 못했습니다",
+                )
+            else:
+                asset["parent_id"] = R.missing(
+                    R.NOT_CONFIGURED,
+                    hint=f"원본 {parent['target']} {ref}가 이미 삭제되었습니다",
+                )
             asset["relation_type"] = R.value(parent["relation"])
             continue
         asset["parent_id"] = R.value(found["asset_id"])
@@ -696,7 +716,7 @@ def run_extract(
     manifest, dumps = load_raw(raw_root / run_id)
 
     assets, issues = build_assets(extract_map, dumps)
-    resolve_relations(extract_map, assets, dumps)
+    resolve_relations(extract_map, assets, dumps, issues)
 
     payload = {
         "meta": {
